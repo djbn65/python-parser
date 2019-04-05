@@ -1,0 +1,5 @@
+*.py
+*.txt
+parser
+*.c
+*.output
