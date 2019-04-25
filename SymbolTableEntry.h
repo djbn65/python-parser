@@ -2,6 +2,7 @@
 #define SYMBOL_TABLE_ENTRY_H
 
 #include <string>
+#include <vector>
 using namespace std;
 
 #define INDEXTYPE -2
@@ -10,33 +11,36 @@ using namespace std;
 #define NULLTYPE 0
 #define INT 1
 #define STR 2
-#define INT_OR_STR 3
-#define BOOL 4
-#define INT_OR_BOOL 5
-#define STR_OR_BOOL 6
-#define FLOAT 7
-#define INT_OR_FLOAT 8
-#define STR_OR_FLOAT 9
-#define INT_OR_STR_OR_FLOAT 10
-#define BOOL_OR_FLOAT 11
-#define LIST 12
-#define INT_OR_LIST 13
-#define STR_OR_LIST 14
-#define BOOL_OR_LIST 16
-#define ARITH_OPER 17
-#define LOGIC_OPER 18
-#define FLOAT_OR_LIST 19
-#define FUNCTION 20
-#define INT_OR_STR_OR_BOOL_OR_FLOAT 21
-#define INT_OR_STR_OR_FLOAT_OR_LIST 22
+#define BOOL 3
+#define FLOAT 4
+#define LIST 5
+#define ARITH_OPER 6
+#define LOGIC_OPER 7
+#define LT 8
+#define GT 9
+#define EQ 10
+#define LE 11
+#define GE 12
+#define NE 13
+#define ADD 14
+#define SUB 15
+#define DIV 16
+#define MULT 17
+#define POW 18
+#define MOD 19
+#define OR 20
+#define AND 21
+#define FUNCTION 22
 
-typedef struct
+struct TYPE_INFO
 {
   int type;       //one of the above type codes
   int numParams;  //numParams and returnType only applicable if type == FUNCTION
   int returnType;
+  int operand;
   bool isFuncParam;
-} TYPE_INFO;
+  void* value;
+};
 
 class SYMBOL_TABLE_ENTRY
 {

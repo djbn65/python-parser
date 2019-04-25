@@ -30,217 +30,220 @@ COMMENT     #.*
 %%
 
 "if"          {
-                printTokenInfo("IF", yytext);
+                // printTokenInfo("IF", yytext);
                 return T_IF;
               }
 "elif"        {
-                printTokenInfo("ELIF", yytext);
+                // printTokenInfo("ELIF", yytext);
                 return T_ELIF;
               }
 "else"        {
-                printTokenInfo("ELSE", yytext);
+                // printTokenInfo("ELSE", yytext);
                 return T_ELSE;
               }
 "while"       {
-                printTokenInfo("WHILE", yytext);
+                // printTokenInfo("WHILE", yytext);
                 return T_WHILE;
               }
 "def"         {
-                printTokenInfo("DEF", yytext);
+                // printTokenInfo("DEF", yytext);
                 return T_DEF;
               }
 "for"         {
-                printTokenInfo("FOR", yytext);
+                // printTokenInfo("FOR", yytext);
                 return T_FOR;
               }
 "in"          {
-                printTokenInfo("IN", yytext);
+                // printTokenInfo("IN", yytext);
                 return T_IN;
               }
 "break"       {
-                printTokenInfo("BREAK", yytext);
+                // printTokenInfo("BREAK", yytext);
                 return T_BREAK;
               }
 "pass"        {
-                printTokenInfo("PASS", yytext);
+                // printTokenInfo("PASS", yytext);
                 return T_PASS;
               }
 "continue"    {
-                printTokenInfo("CONTINUE", yytext);
+                // printTokenInfo("CONTINUE", yytext);
                 return T_CONTINUE;
               }
 "return"      {
-                printTokenInfo("RETURN", yytext);
+                // printTokenInfo("RETURN", yytext);
                 return T_RETURN;
               }
 "end"         {
-                printTokenInfo("END", yytext);
+                // printTokenInfo("END", yytext);
                 return T_END;
               }
 "True"        {
-                printTokenInfo("TRUE", yytext);
+                // printTokenInfo("TRUE", yytext);
                 return T_TRUE;
               }
 "False"       {
-                printTokenInfo("FALSE", yytext);
+                // printTokenInfo("FALSE", yytext);
                 return T_FALSE;
               }
 "quit"        {
-                printTokenInfo("QUIT", yytext);
+                // printTokenInfo("QUIT", yytext);
                 return T_QUIT;
               }
 "print"       {
-                printTokenInfo("PRINT", yytext);
+                // printTokenInfo("PRINT", yytext);
                 return T_PRINT;
               }
 "raw_input"   {
-                printTokenInfo("INPUT", yytext);
+                // printTokenInfo("INPUT", yytext);
                 return T_READ;
               }
 "list"        {
-                printTokenInfo("LIST", yytext);
+                // printTokenInfo("LIST", yytext);
                 return T_LIST;
               }
 "+"           {
-                printTokenInfo("ADD", yytext);
+                // printTokenInfo("ADD", yytext);
                 return T_ADD;
               }
 "-"           {
-                printTokenInfo("SUB", yytext);
+                // printTokenInfo("SUB", yytext);
                 return T_SUB;
               }
 "*"           {
-                printTokenInfo("MULT", yytext);
+                // printTokenInfo("MULT", yytext);
                 return T_MULT;
               }
 "/"           {
-                printTokenInfo("DIV", yytext);
+                // printTokenInfo("DIV", yytext);
                 return T_DIV;
               }
 "%"          {
-                printTokenInfo("MOD", yytext);
+                // printTokenInfo("MOD", yytext);
                 return T_MOD;
               }
 "**"          {
-                printTokenInfo("POWER", yytext);
+                // printTokenInfo("POWER", yytext);
                 return T_POW;
               }
 "<"           {
-                printTokenInfo("LT", yytext);
+                // printTokenInfo("LT", yytext);
                 return T_LT;
               }
 ">"           {
-                printTokenInfo("GT", yytext);
+                // printTokenInfo("GT", yytext);
                 return T_GT;
               }
 "<="          {
-                printTokenInfo("LE", yytext);
+                // printTokenInfo("LE", yytext);
                 return T_LE;
               }
 ">="          {
-                printTokenInfo("GE", yytext);
+                // printTokenInfo("GE", yytext);
                 return T_GE;
               }
 "=="          {
-                printTokenInfo("EQ", yytext);
+                // printTokenInfo("EQ", yytext);
                 return T_EQ;
               }
 "!="          {
-                printTokenInfo("NE", yytext);
+                // printTokenInfo("NE", yytext);
                 return T_NE;
               }
 "not"         {
-                printTokenInfo("NOT", yytext);
+                // printTokenInfo("NOT", yytext);
                 return T_NOT;
               }
 "and"         {
-                printTokenInfo("AND", yytext);
+                // printTokenInfo("AND", yytext);
                 return T_AND;
               }
 "or"          {
-                printTokenInfo("OR", yytext);
+                // printTokenInfo("OR", yytext);
                 return T_OR;
               }
 "="           {
-                printTokenInfo("ASSIGN", yytext);
+                // printTokenInfo("ASSIGN", yytext);
                 return T_ASSIGN;
               }
 "%="          {
-                printTokenInfo("MOD_EQ", yytext);
+                // printTokenInfo("MOD_EQ", yytext);
                 return T_MODEQ;
               }
 "/="          {
-                printTokenInfo("DIV_EQ", yytext);
+                // printTokenInfo("DIV_EQ", yytext);
                 return T_DIVEQ;
               }
 "-="          {
-                printTokenInfo("SUB_EQ", yytext);
+                // printTokenInfo("SUB_EQ", yytext);
                 return T_SUBEQ;
               }
 "+="          {
-                printTokenInfo("ADD_EQ", yytext);
+                // printTokenInfo("ADD_EQ", yytext);
                 return T_ADDEQ;
               }
 "*="          {
-                printTokenInfo("MULT_EQ", yytext);
+                // printTokenInfo("MULT_EQ", yytext);
                 return T_MULTEQ;
               }
 "**="         {
-                printTokenInfo("POW_EQ", yytext);
+                // printTokenInfo("POW_EQ", yytext);
                 return T_POWEQ;
               }
 ":"           {
-                printTokenInfo("COLON", yytext);
+                // printTokenInfo("COLON", yytext);
                 return T_COLON;
               }
 ";"           {
-                printTokenInfo("SEMICOLON", yytext);
+                // printTokenInfo("SEMICOLON", yytext);
                 return T_SEMICOLON;
               }
 ","           {
-                printTokenInfo("COMMA", yytext);
+                // printTokenInfo("COMMA", yytext);
                 return T_COMMA;
               }
 "("           {
-                printTokenInfo("LPAREN", yytext);
+                // printTokenInfo("LPAREN", yytext);
                 return T_LPAREN;
               }
 ")"           {
-                printTokenInfo("RPAREN", yytext);
+                // printTokenInfo("RPAREN", yytext);
                 return T_RPAREN;
               }
 "{"           {
-                printTokenInfo("LBRACE", yytext);
+                // printTokenInfo("LBRACE", yytext);
                 return T_LBRACE;
               }
 "}"           {
-                printTokenInfo("RBRACE", yytext);
+                // printTokenInfo("RBRACE", yytext);
                 return T_RBRACE;
               }
 "["           {
-                printTokenInfo("LBRACKET", yytext);
+                // printTokenInfo("LBRACKET", yytext);
                 return T_LBRACKET;
               }
 "]"           {
-                printTokenInfo("RBRACKET", yytext);
+                // printTokenInfo("RBRACKET", yytext);
                 return T_RBRACKET;
               }
 {COMMENT}     { }
 {IDENT}       {
                 yylval.text = strdup(yytext);
-      				  printTokenInfo("IDENT", yytext);
+      				  // printTokenInfo("IDENT", yytext);
       				  return T_IDENT;
       			  }
 {INTCONST}    {
-      				  printTokenInfo("INTCONST", yytext);
+                yylval.text = strdup(yytext);
+      				  // printTokenInfo("INTCONST", yytext);
       				  return T_INTCONST;
       			  }
 {FLOATCONST}  {
-                printTokenInfo("FLOATCONST", yytext);
+                yylval.text = strdup(yytext);  
+                // printTokenInfo("FLOATCONST", yytext);
                 return T_FLOATCONST;
               }
 {STRCONST}    {
-                printTokenInfo("STRCONST", yytext);
+                yylval.text = strdup(yytext);
+                // printTokenInfo("STRCONST", yytext);
                 return T_STRCONST;
               }
 {WSPACE}		  { }
@@ -249,7 +252,7 @@ COMMENT     #.*
                 return T_NEWLINE;
               }
 .			        {
-        				printTokenInfo("UNKNOWN", yytext);
+        				// printTokenInfo("UNKNOWN", yytext);
         				return T_UNKNOWN;
         			}
 

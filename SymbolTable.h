@@ -39,7 +39,7 @@ public:
     {
       static TYPE_INFO temp;
       temp.type = UNDEF;
-      temp.numParams = 9;
+      temp.numParams = NOT_APPLICABLE;
       temp.returnType = NOT_APPLICABLE;
       return(temp);
     }
