@@ -6,7 +6,6 @@
 #include <iomanip>
 #include <math.h>
 #include "SymbolTable.h"
-using namespace std;
 
 stack<SYMBOL_TABLE> ScopeStack;
 
@@ -25,6 +24,8 @@ TYPE_INFO& findEntryInAnyScopeTYPE(const std::string theName);
 void valueAssignment(void* leftValue, void* rightValue, int typeCode);
 void printList(vector<TYPE_INFO> vec);
 void outputValue(void const * const value, const int type);
+
+#include "statement.h"
 
 extern "C"
 {
@@ -48,7 +49,7 @@ extern "C"
 %token T_UNKNOWN T_ELIF T_ELSE T_DEF T_RPAREN T_PASS T_SEMICOLON T_CONTINUE T_RETURN T_END T_NEWLINE
 %token T_MODEQ T_DIVEQ T_SUBEQ T_ADDEQ T_MULTEQ T_POWEQ
 %type <text> T_IDENT T_INTCONST T_FLOATCONST T_STRCONST;
-%type <typeInfo> N_CONST N_EXPR N_EXPR_LIST N_WHILE_EXPR N_ARITHLOGIC_EXPR N_ASSIGNMENT_EXPR N_OUTPUT_EXPR N_INPUT_EXPR N_LIST_EXPR N_FUNCTION_CALL N_FUNCTION_DEF N_QUIT_EXPR N_INDEX N_SINGLE_ELEMENT N_ENTIRE_VAR N_TERM N_MULT_OP_LIST N_FACTOR N_ADD_OP N_MULT_OP N_VAR N_SIMP_ARITHLOGIC N_ADD_OP_LIST N_FOR_EXPR N_IF_EXPR  N_PARAM_LIST N_ARG_LIST N_ARGS N_VALID_ASSIGN_EXPR N_DICT_EXPR N_FUNC_EXPR_LIST N_PROGRAM N_VALID_PRINT_EXPR N_REL_OP N_PAREN_EXPR N_CONST_LIST N_IND_EXPR N_VALID_IF_EXPR;
+%type <typeInfo> N_CONST N_EXPR N_EXPR_LIST N_WHILE_EXPR N_ARITHLOGIC_EXPR N_ASSIGNMENT_EXPR N_OUTPUT_EXPR N_INPUT_EXPR N_LIST_EXPR N_FUNCTION_CALL N_FUNCTION_DEF N_QUIT_EXPR N_INDEX N_SINGLE_ELEMENT N_ENTIRE_VAR N_TERM N_MULT_OP_LIST N_FACTOR N_ADD_OP N_MULT_OP N_VAR N_SIMP_ARITHLOGIC N_ADD_OP_LIST N_FOR_EXPR N_IF_EXPR  N_PARAM_LIST N_ARG_LIST N_ARGS N_VALID_ASSIGN_EXPR N_DICT_EXPR N_FUNC_EXPR_LIST N_PROGRAM N_VALID_PRINT_EXPR N_REL_OP N_PAREN_EXPR N_CONST_LIST N_IND_EXPR N_VALID_IF_EXPR N_OPT_ELIF N_OPT_ELSE;
 
 %start N_START
 
@@ -137,6 +138,26 @@ N_EXPR            : N_IF_EXPR
                       $$.returnType = $1.returnType;
                       $$.isFuncParam = $1.isFuncParam;
                       valueAssignment($$.value, $1.value, $1.type);
+                      if ($1.type == INT)
+                      {
+                        cout << *(int*)($1.value) << endl;
+                      }
+                      else if ($1.type == FLOAT)
+                      {
+                        cout << *(float*)($1.value) << endl;
+                      }
+                      else if ($1.type == STR)
+                      {
+                        cout << *(string*)($1.value) << endl;
+                      }
+                      else if ($1.type == BOOL)
+                      {
+                        cout << *(bool*)($1.value) << endl;
+                      }
+                      else if ($1.type == LIST)
+                      {
+                        printList(*(vector<TYPE_INFO>*)($1.value));
+                      }
                       cout << ">>> ";
                     }
                   | N_FUNCTION_DEF
@@ -155,7 +176,8 @@ N_EXPR            : N_IF_EXPR
                       $$.returnType = $1.returnType;
                       $$.isFuncParam = $1.isFuncParam;
                       valueAssignment($$.value, $1.value, $1.type);
-                      cout << ">>> ";
+                      printList(*(vector<TYPE_INFO>*)($1.value));
+                      cout << "\n>>> ";
                     }
                   | N_DICT_EXPR
                     {
@@ -416,22 +438,32 @@ N_IF_BODY_EXPR    : N_IF_EXPR
                     }
                   | N_QUIT_EXPR
                   ;
-N_OPT_ELIF        : T_ELIF N_EXPR T_COLON N_EXPR_LIST N_OPT_ELIF
+N_OPT_ELIF        : T_ELIF N_VALID_IF_EXPR T_COLON
+                    {
+                      cout << "... ";
+                    } 
+                    N_IF_EXPR_LIST N_OPT_ELIF
                     {
                       // printRule("T_ELIF N_EXPR T_COLON N_EXPR_LIST N_OPT_ELIF", "N_OPT_ELIF");
                     }
                   | /* epsilon */
                     {
                       // printRule("EPSILON", "N_OPT_ELIF");
+                      $$.type = UNDEF;
                     }
                   ;
-N_OPT_ELSE        : T_ELSE T_COLON N_EXPR_LIST
+N_OPT_ELSE        : T_ELSE T_COLON
+                    {
+                      cout << "... ";
+                    } 
+                    N_IF_EXPR_LIST
                     {
                       // printRule("T_ELSE T_COLON N_EXPR_LIST", "N_OPT_ELSE");
                     }
                   | /* epsilon */
                     {
                       // printRule("EPSILON", "N_OPT_ELSE");
+                      $$.type = UNDEF;
                     }
                   ;
 N_WHILE_EXPR      : T_WHILE N_EXPR T_COLON N_EXPR_LIST T_END
@@ -626,12 +658,33 @@ N_INPUT_EXPR      : T_READ T_LPAREN T_RPAREN
 N_OUTPUT_EXPR     : T_PRINT N_VALID_PRINT_EXPR
                     {
                       // printRule("T_PRINT N_VALID_PRINT_EXPR", "N_OUTPUT_EXPR");
-                      outputValue($2.value, $2.type);
+                      $$.type = $2.type;
+                      if ($2.type == INT)
+                      {
+                        $$.value = new int(*(int*)($2.value));
+                      }
+                      else if ($2.type == FLOAT)
+                      {
+                        $$.value = new float(*(float*)($2.value));
+                      }
+                      else if ($2.type == STR)
+                      {
+                        $$.value = new string(*(string*)($2.value));
+                      }
+                      else if ($2.type == BOOL)
+                      {
+                        $$.value = new bool(*(bool*)($2.value));
+                      }
+                      else if ($2.type == LIST)
+                      {
+                        $$.value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($2.value));
+                      }
                     }
                   | T_PRINT
                     {
                       // printRule("T_PRINT", "N_OUTPUT_EXPR");
-                      cout << "\n";
+                      $$.type = STR;
+                      $$.value = new string("");
                     }
                   ;
 N_FUNCTION_DEF    : T_DEF T_IDENT
@@ -2923,9 +2976,6 @@ int main()
 {
   beginScope();
   cout << ">>> ";
-  cout.setf(ios::fixed); 
-  cout.setf(ios::showpoint); 
-  cout.precision(16);
   do
   {
 	  yyparse();
