@@ -340,7 +340,11 @@ N_CONST           : T_INTCONST
                       $$.value = new bool(false);
                     }
                   ;
-N_IF_EXPR         : T_IF N_VALID_IF_EXPR T_COLON N_IF_EXPR_LIST N_OPT_ELIF N_OPT_ELSE T_END
+N_IF_EXPR         : T_IF N_VALID_IF_EXPR T_COLON
+                    {
+                      cout << "... ";
+                    }
+                    N_IF_EXPR_LIST N_OPT_ELIF N_OPT_ELSE T_END
                     {
                       // printRule("T_IF N_EXPR T_COLON N_EXPR_LIST T_END", "N_IF_EXPR");
                       
@@ -371,15 +375,45 @@ N_IF_EXPR_LIST    : T_NEWLINE N_IF_BODY_EXPR N_IF_EXPR_LIST
                   | /* epsilon */
                   ;
 N_IF_BODY_EXPR    : N_IF_EXPR
+                    {
+                      cout << "... ";
+                    }
                   | N_WHILE_EXPR
+                    {
+                      cout << "... ";
+                    }
                   | N_FOR_EXPR
+                    {
+                      cout << "... ";
+                    }
                   | N_ARITHLOGIC_EXPR
+                    {
+                      cout << "... ";
+                    }
                   | N_ASSIGNMENT_EXPR
+                    {
+                      cout << "... ";
+                    }
                   | N_OUTPUT_EXPR
+                    {
+                      cout << "... ";
+                    }
                   | N_INPUT_EXPR
+                    {
+                      cout << "... ";
+                    }
                   | N_LIST_EXPR
+                    {
+                      cout << "... ";
+                    }
                   | N_DICT_EXPR
+                    {
+                      cout << "... ";
+                    }
                   | N_FUNCTION_CALL
+                    {
+                      cout << "... ";
+                    }
                   | N_QUIT_EXPR
                   ;
 N_OPT_ELIF        : T_ELIF N_EXPR T_COLON N_EXPR_LIST N_OPT_ELIF
@@ -744,6 +778,14 @@ N_CONST_LIST      : N_CONST T_COMMA N_CONST_LIST
                       metaList.insert(metaList.begin(), temp);
                       $$.value = new vector<TYPE_INFO>(metaList);
                     }
+                  | N_LIST_EXPR T_COMMA N_CONST_LIST
+                    {
+                      TYPE_INFO temp;
+                      temp.type = LIST;
+                      temp.value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($1.value));
+                      metaList.insert(metaList.begin(), temp);
+                      $$.value = new vector<TYPE_INFO>(metaList);
+                    }
                   | N_CONST
                     {
                       // printRule("CONST_LIST", "CONST");
@@ -766,6 +808,18 @@ N_CONST_LIST      : N_CONST T_COMMA N_CONST_LIST
                         temp.value = new bool(*(bool*)($1.value));
                       }
                       metaList.push_back(temp);
+                      $$.value = new vector<TYPE_INFO>(metaList);
+                    }
+                  | N_LIST_EXPR
+                    {
+                      TYPE_INFO temp;
+                      temp.type = LIST;
+                      temp.value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($1.value));
+                      metaList.push_back(temp);
+                      $$.value = new vector<TYPE_INFO>(metaList);
+                    }
+                  | /* epsilon */
+                    {
                       $$.value = new vector<TYPE_INFO>(metaList);
                     }
                   ;
@@ -2789,27 +2843,55 @@ void valueAssignment(void* leftValue, void* rightValue, int typeCode)
 
 void printList(vector<TYPE_INFO> vec)
 {
-  cout << "( ";
-  for (int i = 0; i < vec.size(); i++)
+  cout << "[";
+  if (vec.size() > 0)
   {
-    if (vec[i].type == STR)
+    for (int i = 0; i < vec.size() - 1; i++)
     {
-      cout << *(string*)(vec[i].value) << " ";
+      if (vec[i].type == STR)
+      {
+        cout << *(string*)(vec[i].value) << ", ";
+      }
+      else if (vec[i].type == INT)
+      {
+        cout << *(int*)(vec[i].value) << ", ";
+      }
+      else if (vec[i].type == FLOAT)
+      {
+        cout << *(float*)(vec[i].value) << ", ";
+      }
+      else if (vec[i].type == BOOL)
+      {
+        cout << (*(bool*)(vec[i].value) ? ("True") : ("False")) << ", ";
+      }
+      else if (vec[i].type == LIST)
+      {
+        printList(*(vector<TYPE_INFO>*)(vec[i].value));
+        cout << ", ";
+      }
     }
-    else if (vec[i].type == INT)
+    if (vec[vec.size() - 1].type == STR)
     {
-      cout << *(int*)(vec[i].value) << " ";
+      cout << *(string*)(vec[vec.size() - 1].value);
     }
-    else if (vec[i].type == FLOAT)
+    else if (vec[vec.size() - 1].type == INT)
     {
-      cout << *(float*)(vec[i].value) << " ";
+      cout << *(int*)(vec[vec.size() - 1].value);
     }
-    else if (vec[i].type == BOOL)
+    else if (vec[vec.size() - 1].type == FLOAT)
     {
-      cout << (*(bool*)(vec[i].value) ? ("TRUE") : ("FALSE")) << " ";
+      cout << *(float*)(vec[vec.size() - 1].value);
     }
+    else if (vec[vec.size() - 1].type == BOOL)
+    {
+      cout << (*(bool*)(vec[vec.size() - 1].value) ? ("True") : ("False"));
+    }
+    else if (vec[vec.size() - 1].type == LIST)
+      {
+        printList(*(vector<TYPE_INFO>*)(vec[vec.size() - 1].value));
+      }
   }
-  cout << ")\n";
+  cout << "]";
 }
 
 void outputValue(void const * const value, const int type)
@@ -2833,6 +2915,7 @@ void outputValue(void const * const value, const int type)
   else if (type == LIST)
   {
     printList(*(vector<TYPE_INFO>*)(value));
+    cout << endl;
   }
 }
 
