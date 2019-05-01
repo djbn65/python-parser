@@ -31,6 +31,11 @@ using namespace std;
 #define OR 20
 #define AND 21
 #define FUNCTION 22
+#define ASSIGN 23
+
+class Statement;
+class StatementList;
+class Expression;
 
 struct TYPE_INFO
 {
@@ -39,6 +44,8 @@ struct TYPE_INFO
   int returnType;
   int operand;
   bool isFuncParam;
+  Statement* stmt;
+  Expression* expr;
   void* value;
 };
 

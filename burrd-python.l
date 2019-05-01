@@ -242,6 +242,12 @@ COMMENT     #.*
                 return T_FLOATCONST;
               }
 {STRCONST}    {
+                char temp[strlen(yytext) - 1]; 
+                int counter = 0;
+                for (int i = 1; i < strlen(yytext) - 1; i++, counter++)
+                  temp[counter] = yytext[i];
+                temp[counter] = '\0';
+                strcpy(yytext, temp);
                 yylval.text = strdup(yytext);
                 // printTokenInfo("STRCONST", yytext);
                 return T_STRCONST;

@@ -5,13 +5,19 @@
 #include <vector>
 #include <iomanip>
 #include <math.h>
+#include <typeinfo>
 #include "SymbolTable.h"
 
 stack<SYMBOL_TABLE> ScopeStack;
+stack<SYMBOL_TABLE> ifScopeRestore, elseScopeRestore;
 
 int numLines = 1;
+string assignmentName;
 vector<TYPE_INFO> metaList;
 SYMBOL_TABLE* symPtr;
+
+class Expression;
+Expression* lastUsed;
 
 void printRule(const char *, const char *);
 int yyerror(const char *s);
@@ -21,9 +27,19 @@ void endScope();
 bool findEntryInAnyScope(const std::string theName);
 TYPE_INFO& findEntryInAnyScopeTYPE(const std::string theName);
 
-void valueAssignment(void* leftValue, void* rightValue, int typeCode);
+void valueAssignment(void*& leftValue, void* rightValue, int typeCode);
 void printList(vector<TYPE_INFO> vec);
 void outputValue(void const * const value, const int type);
+void doAddition(TYPE_INFO& value, Expression* lhs, Expression* rhs);
+void doMultiplication(TYPE_INFO& val, Expression* lhs, Expression* rhs);
+void doSubtraction(TYPE_INFO& val, Expression* lhs, Expression* rhs);
+void doDivision(TYPE_INFO& val, Expression* lhs, Expression* rhs);
+void doModulous(TYPE_INFO& val, Expression* lhs, Expression* rhs);
+void doPow(TYPE_INFO& val, Expression* lhs, Expression* rhs);
+void doOr(TYPE_INFO& val, Expression* lhs, Expression* rhs);
+void doAnd(TYPE_INFO& val, Expression* lhs, Expression* rhs);
+void doNegate(string name);
+void doNegate(TYPE_INFO& temp);
 
 #include "statement.h"
 
@@ -49,7 +65,7 @@ extern "C"
 %token T_UNKNOWN T_ELIF T_ELSE T_DEF T_RPAREN T_PASS T_SEMICOLON T_CONTINUE T_RETURN T_END T_NEWLINE
 %token T_MODEQ T_DIVEQ T_SUBEQ T_ADDEQ T_MULTEQ T_POWEQ
 %type <text> T_IDENT T_INTCONST T_FLOATCONST T_STRCONST;
-%type <typeInfo> N_CONST N_EXPR N_EXPR_LIST N_WHILE_EXPR N_ARITHLOGIC_EXPR N_ASSIGNMENT_EXPR N_OUTPUT_EXPR N_INPUT_EXPR N_LIST_EXPR N_FUNCTION_CALL N_FUNCTION_DEF N_QUIT_EXPR N_INDEX N_SINGLE_ELEMENT N_ENTIRE_VAR N_TERM N_MULT_OP_LIST N_FACTOR N_ADD_OP N_MULT_OP N_VAR N_SIMP_ARITHLOGIC N_ADD_OP_LIST N_FOR_EXPR N_IF_EXPR  N_PARAM_LIST N_ARG_LIST N_ARGS N_VALID_ASSIGN_EXPR N_DICT_EXPR N_FUNC_EXPR_LIST N_PROGRAM N_VALID_PRINT_EXPR N_REL_OP N_PAREN_EXPR N_CONST_LIST N_IND_EXPR N_VALID_IF_EXPR N_OPT_ELIF N_OPT_ELSE;
+%type <typeInfo> N_CONST N_EXPR N_EXPR_LIST N_WHILE_EXPR N_ARITHLOGIC_EXPR N_ASSIGNMENT_EXPR N_OUTPUT_EXPR N_INPUT_EXPR N_LIST_EXPR N_FUNCTION_CALL N_FUNCTION_DEF N_QUIT_EXPR N_INDEX N_SINGLE_ELEMENT N_ENTIRE_VAR N_TERM N_MULT_OP_LIST N_FACTOR N_ADD_OP N_MULT_OP N_VAR N_SIMP_ARITHLOGIC N_ADD_OP_LIST N_FOR_EXPR N_IF_EXPR  N_PARAM_LIST N_ARG_LIST N_ARGS N_VALID_ASSIGN_EXPR N_DICT_EXPR N_FUNC_EXPR_LIST N_PROGRAM N_VALID_PRINT_EXPR N_REL_OP N_PAREN_EXPR N_CONST_LIST N_IND_EXPR N_VALID_IF_EXPR N_OPT_ELIF N_OPT_ELSE N_IF_BODY_EXPR N_IF_EXPR_LIST N_ELSE_EXPR_LIST N_ASSIGN_OP N_VALID_FOR_EXPR N_FOR_EXPR_LIST N_ATOM N_MULT_EXP_LIST N_OR_CHAIN N_OR_LIST N_AND_CHAIN N_AND_LIST;
 
 %start N_START
 
@@ -83,6 +99,7 @@ N_EXPR            : N_IF_EXPR
                       $$.returnType = $1.returnType;
                       $$.isFuncParam = $1.isFuncParam;
                       valueAssignment($$.value, $1.value, $1.type);
+                      $1.stmt->eval();
                       cout << ">>> ";
                     }
                   | N_WHILE_EXPR
@@ -101,15 +118,16 @@ N_EXPR            : N_IF_EXPR
                       $$.returnType = $1.returnType;
                       $$.isFuncParam = $1.isFuncParam;
                       valueAssignment($$.value, $1.value, $1.type);
+                      $1.stmt->eval();
                       cout << ">>> ";
                     }
                   | N_ASSIGNMENT_EXPR
                     {
                       // printRule("N_ASSIGNMENT_EXPR", "N_EXPR");
+                      $1.stmt->eval();
                       $$.numParams = $1.numParams;
                       $$.returnType = $1.returnType;
                       $$.isFuncParam = $1.isFuncParam;
-                      valueAssignment($$.value, $1.value, $1.type);
                       cout << ">>> ";
                     }
                   | N_INPUT_EXPR
@@ -128,7 +146,7 @@ N_EXPR            : N_IF_EXPR
                       $$.returnType = $1.returnType;
                       $$.isFuncParam = $1.isFuncParam;
                       valueAssignment($$.value, $1.value, $1.type);
-                      outputValue($1.value, $1.type);
+                      $1.stmt->eval();
                       cout << ">>> ";
                     }
                   | N_OUTPUT_EXPR
@@ -222,6 +240,7 @@ N_VALID_ASSIGN_EXPR : N_INPUT_EXPR
                         $$.returnType = $1.returnType;
                         $$.isFuncParam = $1.isFuncParam;
                         valueAssignment($$.value, $1.value, $1.type);
+                        $$.expr = $1.expr;
                       }
                     | N_LIST_EXPR
                       {
@@ -253,11 +272,32 @@ N_VALID_ASSIGN_EXPR : N_INPUT_EXPR
                     | N_ASSIGNMENT_EXPR
                       {
                         // printRule("N_ASSIGNMENT_EXPR", "N_VALID_ASSIGN_EXPR");
+                        $$.stmt = new Assignment(*dynamic_cast<Assignment*>($1.stmt));
                         $$.type = $1.type;
                         $$.numParams = $1.numParams;
                         $$.returnType = $1.returnType;
                         $$.isFuncParam = $1.isFuncParam;
-                        valueAssignment($$.value, $1.value, $1.type);
+                        $$.expr = $1.stmt->getExpr();
+                        if ($1.type == INT)
+                        {
+                          $$.value = new int(*(int*)($1.value));
+                        }
+                        else if ($1.type == FLOAT)
+                        {
+                          $$.value = new float(*(float*)($1.value));
+                        }
+                        else if ($1.type == BOOL)
+                        {
+                          $$.value = new bool(*(bool*)($1.value));
+                        }
+                        else if ($1.type == STR)
+                        {
+                          $$.value = new string(*(string*)($1.value));
+                        }
+                        else if ($1.type == LIST)
+                        {
+                          $$.value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($1.value));
+                        }
                       }
                     ;
 N_VALID_PRINT_EXPR  : N_INPUT_EXPR
@@ -269,11 +309,13 @@ N_VALID_PRINT_EXPR  : N_INPUT_EXPR
                       {
                         $$.type = $1.type;
                         valueAssignment($$.value, $1.value, $1.type);
+                        $$.stmt = $1.stmt;
                       }
                     | N_LIST_EXPR
                       {
                         $$.type = $1.type;
                         valueAssignment($$.value, $1.value, $1.type);
+                        $$.stmt = new ArithStatement($1.expr);
                       }
                     | N_DICT_EXPR
                       {
@@ -365,11 +407,23 @@ N_CONST           : T_INTCONST
 N_IF_EXPR         : T_IF N_VALID_IF_EXPR T_COLON
                     {
                       cout << "... ";
+                      ifScopeRestore = ScopeStack;
                     }
                     N_IF_EXPR_LIST N_OPT_ELIF N_OPT_ELSE T_END
                     {
                       // printRule("T_IF N_EXPR T_COLON N_EXPR_LIST T_END", "N_IF_EXPR");
-                      
+                      if (!(*(int*)($2.value)))
+                        ScopeStack = ifScopeRestore;
+                      else if ($7.type != UNDEF)
+                        ScopeStack = elseScopeRestore;
+                      if ($5.stmt != NULL && $7.stmt != NULL && $5.stmt->size() && $7.stmt->size())
+                        $$.stmt = new IfElseStatement(*(int*)($2.value), *dynamic_cast<StatementList*>($5.stmt), *dynamic_cast<StatementList*>($7.stmt));
+                      else if ($5.stmt != NULL && $7.stmt == NULL && $5.stmt->size())
+                        $$.stmt = new IfElseStatement(*(int*)($2.value), *dynamic_cast<StatementList*>($5.stmt), StatementList());
+                      else if ($5.stmt == NULL && $7.stmt != NULL && $7.stmt->size())
+                        $$.stmt = new IfElseStatement(*(int*)($2.value), StatementList(), *dynamic_cast<StatementList*>($7.stmt));
+                      else
+                        $$.stmt = new IfElseStatement(*(int*)($2.value), StatementList(), StatementList());
                     }
                   ;
 N_VALID_IF_EXPR   : N_ARITHLOGIC_EXPR
@@ -391,14 +445,30 @@ N_VALID_IF_EXPR   : N_ARITHLOGIC_EXPR
                       valueAssignment($$.value, $1.value, $1.type);
                     }
                   | N_QUIT_EXPR
+                    {
+                      
+                    }
                   ;
 N_IF_EXPR_LIST    : T_NEWLINE N_IF_BODY_EXPR N_IF_EXPR_LIST
+                    {
+                      $$.stmt = new StatementList();
+                      if ($3.type != UNDEF)
+                        $$.stmt->append($3.stmt);
+                      $$.stmt->add($2.stmt);
+                    }
                   | T_NEWLINE N_IF_EXPR_LIST
+                    {
+                      $$.type = UNDEF;
+                    }
                   | /* epsilon */
+                    {
+                      $$.type = UNDEF;
+                    }
                   ;
 N_IF_BODY_EXPR    : N_IF_EXPR
                     {
                       cout << "... ";
+                      $$.stmt = $1.stmt;
                     }
                   | N_WHILE_EXPR
                     {
@@ -407,18 +477,22 @@ N_IF_BODY_EXPR    : N_IF_EXPR
                   | N_FOR_EXPR
                     {
                       cout << "... ";
+                      $$.stmt = new ForLoop(*dynamic_cast<ForLoop*>($1.stmt));
                     }
                   | N_ARITHLOGIC_EXPR
                     {
                       cout << "... ";
+                      $$.stmt = new ArithStatement(*dynamic_cast<ArithStatement*>($1.stmt));
                     }
                   | N_ASSIGNMENT_EXPR
                     {
                       cout << "... ";
+                      $$.stmt = new Assignment(*dynamic_cast<Assignment*>($1.stmt));
                     }
                   | N_OUTPUT_EXPR
                     {
                       cout << "... ";
+                      $$.stmt = new Print($1.stmt);
                     }
                   | N_INPUT_EXPR
                     {
@@ -437,6 +511,25 @@ N_IF_BODY_EXPR    : N_IF_EXPR
                       cout << "... ";
                     }
                   | N_QUIT_EXPR
+                    {
+
+                    }
+                  ;
+N_ELSE_EXPR_LIST  : T_NEWLINE N_IF_BODY_EXPR N_ELSE_EXPR_LIST
+                    {
+                      $$.stmt = new StatementList();
+                      if ($3.type != UNDEF)
+                        $$.stmt->append($3.stmt);
+                      $$.stmt->add($2.stmt);
+                    }
+                  | T_NEWLINE N_ELSE_EXPR_LIST
+                    {
+                      $$.type = UNDEF;
+                    }
+                  | /* epsilon */
+                    {
+                      $$.type = UNDEF;
+                    }
                   ;
 N_OPT_ELIF        : T_ELIF N_VALID_IF_EXPR T_COLON
                     {
@@ -455,15 +548,20 @@ N_OPT_ELIF        : T_ELIF N_VALID_IF_EXPR T_COLON
 N_OPT_ELSE        : T_ELSE T_COLON
                     {
                       cout << "... ";
+                      elseScopeRestore = ScopeStack;
                     } 
-                    N_IF_EXPR_LIST
+                    N_ELSE_EXPR_LIST
                     {
                       // printRule("T_ELSE T_COLON N_EXPR_LIST", "N_OPT_ELSE");
+                      $$.stmt = new StatementList();
+                      if ($4.stmt != NULL)
+                        $$.stmt->append($4.stmt);
                     }
                   | /* epsilon */
                     {
                       // printRule("EPSILON", "N_OPT_ELSE");
                       $$.type = UNDEF;
+                      $$.stmt = new StatementList();
                     }
                   ;
 N_WHILE_EXPR      : T_WHILE N_EXPR T_COLON N_EXPR_LIST T_END
@@ -476,18 +574,56 @@ N_FOR_EXPR        : T_FOR T_IDENT
                       int tempType = ScopeStack.top().findEntry($2).type;
                       if (tempType == UNDEF)
                       {
-                        printf("___Adding %s to symbol table\n", $2);
                         TYPE_INFO temp;
-                        temp.type = INT;
+                        temp.type = UNDEF;
                         temp.numParams = NOT_APPLICABLE;
                         temp.returnType = NOT_APPLICABLE;
                         temp.isFuncParam = false;
                         ScopeStack.top().addEntry(SYMBOL_TABLE_ENTRY($2, temp));
                       }
-                    } 
-                    T_IN N_EXPR T_COLON N_EXPR_LIST T_END
+                    }
+                    T_IN N_VALID_FOR_EXPR T_COLON
+                    {
+                      cout << "... ";
+                      if ((*(vector<TYPE_INFO>*)($5.value)).size() > 0)
+                      {
+                        findEntryInAnyScopeTYPE($2).type = (*(vector<TYPE_INFO>*)($5.value))[0].type;
+                        valueAssignment(findEntryInAnyScopeTYPE($2).value, (*(vector<TYPE_INFO>*)($5.value))[0].value, (*(vector<TYPE_INFO>*)($5.value))[0].type);
+                      }
+                    }
+                    N_FOR_EXPR_LIST T_END
                     {
                       // printRule("T_FOR T_IDENT T_IN N_EXPR T_COLON N_EXPR_LIST T_END", "N_FOR_EXPR");
+                      $$.stmt = new ForLoop($2, *(vector<TYPE_INFO>*)($5.value), *dynamic_cast<StatementList*>($8.stmt));
+                    }
+                  ;
+N_FOR_EXPR_LIST   : T_NEWLINE N_IF_BODY_EXPR N_FOR_EXPR_LIST
+                    {
+                      $$.stmt = new StatementList();
+                      if ($3.type != UNDEF)
+                        $$.stmt->append($3.stmt);
+                      $$.stmt->add($2.stmt);
+                    }
+                  | T_NEWLINE N_FOR_EXPR_LIST
+                    {
+                      $$.type = UNDEF;
+                    }
+                  | /* epsilon */
+                    {
+                      $$.type = UNDEF;
+                    }
+                  ;
+N_VALID_FOR_EXPR  : N_LIST_EXPR
+                    {
+                      $$.type = LIST;
+                      $$.value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($1.value));
+                    }
+                  | N_VAR
+                    {
+                      if ($1.type != LIST)
+                        yyerror("Must have iterable list");
+                      $$.type = LIST;
+                      $$.value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($1.value));
                     }
                   ;
 N_ASSIGNMENT_EXPR : T_IDENT N_INDEX 
@@ -504,122 +640,46 @@ N_ASSIGNMENT_EXPR : T_IDENT N_INDEX
                       {
                         if (ScopeStack.top().findEntry($1).type == UNDEF)
                         {
-                          TYPE_INFO temp;
-                          temp.type = UNDEF;
-                          temp.numParams = NOT_APPLICABLE;
-                          temp.returnType = NOT_APPLICABLE;
-                          temp.isFuncParam = false;
-                          ScopeStack.top().addEntry(SYMBOL_TABLE_ENTRY($1, temp));
+                            TYPE_INFO temp;
+                            temp.type = UNDEF;
+                            temp.numParams = NOT_APPLICABLE;
+                            temp.returnType = NOT_APPLICABLE;
+                            temp.isFuncParam = false;
+                            ScopeStack.top().addEntry(SYMBOL_TABLE_ENTRY($1, temp));
                         }
                       }
                     }
                     N_ASSIGN_OP N_VALID_ASSIGN_EXPR
                     {
-                      if (findEntryInAnyScopeTYPE($1).isFuncParam && $5.type != INT && $5.type != BOOL)
-                        yyerror("Arg 1 must be integer");
+                      $$.stmt = new Assignment($1, $4.type, $2, $5.expr);
                       $$.type = $5.type;
-                      $$.numParams = $5.numParams;
-                      $$.returnType = $5.returnType;
-                      if ($2.type == INDEXTYPE)
+                      if ($5.stmt != NULL)
                       {
-                        int size = (*(vector<TYPE_INFO>*)(findEntryInAnyScopeTYPE($1).value)).size();
-                        if ($5.type == LIST)
-                          yyerror("Arg 1 cannot be list");
-                        if (*(int*)($2.value) < -size ||
-                            *(int*)($2.value) >= size)
-                          yyerror("Subscript out of bounds");
-                        if ($5.type == STR)
+                        if ($5.stmt->size() != -1)
                         {
-                          if ((*(int*)($2.value)) < 0)
-                          {
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value)) + size].value = new std::string(*(std::string*)($5.value));
-                            $$.value = new std::string(*(std::string*)($5.value));
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value)) + size].type = $5.type;
-                          }
-                          else
-                          {
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value))].value = new std::string(*(std::string*)($5.value));
-                            $$.value = new std::string(*(std::string*)($5.value));
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value))].type = $5.type;
-                          }
-                        }
-                        else if ($5.type == INT)
-                        {
-                          if ((*(int*)($2.value)) < 0)
-                          {
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value)) + size].value = new int(*(int*)($5.value));
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value)) + size].type = $5.type;
-                            $$.value = new int(*(int*)($5.value));
-                          }
-                          else
-                          {
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value))].value = new int(*(int*)($5.value));
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value))].type = $5.type;
-                            $$.value = new int(*(int*)($5.value));
-                          }
-                        }
-                        else if ($5.type == FLOAT)
-                        {
-                          if ((*(int*)($2.value)) < 0)
-                          {
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value)) + size].value = new float(*(float*)($5.value));
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value)) + size].type = $5.type;
-                            $$.value = new float(*(float*)($5.value));
-                          }
-                          else
-                          {
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value))].value = new float(*(float*)($5.value));
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value))].type = $5.type;
-                            $$.value = new float(*(float*)($5.value));
-                          }
-                        }
-                        else if ($5.type == BOOL)
-                        {
-                          if ((*(int*)($2.value)) < 0)
-                          {
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value)) + size].value = new bool(*(bool*)($5.value));
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value)) + size].type = $5.type;
-                            $$.value = new bool(*(bool*)($5.value));
-                          }
-                          else
-                          {
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value))].value = new bool(*(bool*)($5.value));
-                            (*(vector<TYPE_INFO>*)(ScopeStack.top().findEntry($1).value))[(*(int*)($2.value))].type = $5.type;
-                            $$.value = new bool(*(bool*)($5.value));
-                          }
+                          $$.stmt->add($5.stmt);
+                          $$.stmt->append($5.stmt);
                         }
                       }
-                      else
+                      if ($5.type == INT)
                       {
-                        ScopeStack.top().findEntry($1).type = $5.type;
-                        ScopeStack.top().findEntry($1).numParams = $5.numParams;
-                        ScopeStack.top().findEntry($1).returnType = $5.returnType;
-                        ScopeStack.top().findEntry($1).isFuncParam = $5.isFuncParam;
-                        if ($5.type == STR)
-                        {
-                          ScopeStack.top().findEntry($1).value = new std::string(*(std::string*)($5.value));
-                          $$.value = new std::string(*(std::string*)($5.value));
-                        }
-                        else if ($5.type == INT)
-                        {
-                          ScopeStack.top().findEntry($1).value = new int(*(int*)($5.value));
-                          $$.value = new int(*(int*)($5.value));
-                        }
-                        else if ($5.type == FLOAT)
-                        {
-                          ScopeStack.top().findEntry($1).value = new float(*(float*)($5.value));
-                          $$.value = new float(*(float*)($5.value));
-                        }
-                        else if ($5.type == BOOL)
-                        {
-                          ScopeStack.top().findEntry($1).value = new bool(*(bool*)($5.value));
-                          $$.value = new bool(*(bool*)($5.value));
-                        }
-                        else if ($5.type == LIST)
-                        {
-                          ScopeStack.top().findEntry($1).value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($5.value));
-                          $$.value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($5.value));
-                        }
+                        $$.value = new int(*(int*)($5.value));
+                      }
+                      else if ($5.type == FLOAT)
+                      {
+                        $$.value = new float(*(float*)($5.value));
+                      }
+                      else if ($5.type == BOOL)
+                      {
+                        $$.value = new bool(*(bool*)($5.value));
+                      }
+                      else if ($5.type == STR)
+                      {
+                        $$.value = new string(*(string*)($5.value));
+                      }
+                      else if ($5.type == LIST)
+                      {
+                        $$.value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($5.value));
                       }
                     }
                   ;
@@ -679,6 +739,7 @@ N_OUTPUT_EXPR     : T_PRINT N_VALID_PRINT_EXPR
                       {
                         $$.value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($2.value));
                       }
+                      $$.stmt = $2.stmt;
                     }
                   | T_PRINT
                     {
@@ -781,6 +842,7 @@ N_LIST_EXPR       : T_LIST T_LPAREN N_CONST_LIST T_RPAREN
                       $$.numParams = NOT_APPLICABLE;
                       $$.returnType = NOT_APPLICABLE;
                       $$.value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($3.value));
+                      $$.expr = new Const($$);
                       metaList.clear();
                     }
                   | T_LBRACKET N_CONST_LIST T_RBRACKET
@@ -790,6 +852,7 @@ N_LIST_EXPR       : T_LIST T_LPAREN N_CONST_LIST T_RPAREN
                       $$.numParams = NOT_APPLICABLE;
                       $$.returnType = NOT_APPLICABLE;
                       $$.value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($2.value));
+                      $$.expr = new Const($$);
                       metaList.clear();
                     }
                   ;
@@ -927,8 +990,9 @@ N_QUIT_EXPR       : T_QUIT T_LPAREN T_RPAREN
                       exit(0);
                     }
                   ;
-N_ARITHLOGIC_EXPR : N_SIMP_ARITHLOGIC
+N_ARITHLOGIC_EXPR : N_OR_CHAIN
                     {
+                      $$.stmt = new ArithStatement($1.expr);
                       // printRule("ARITHLOGIC_EXPR", "SIMPLE_ARITHLOGIC");
                       $$.type = $1.type;
                       if ($1.type == INT)
@@ -948,310 +1012,664 @@ N_ARITHLOGIC_EXPR : N_SIMP_ARITHLOGIC
                         $$.value = new string(*(string*)($1.value));
                       }
                     }
-                  | N_SIMP_ARITHLOGIC N_REL_OP N_SIMP_ARITHLOGIC
+                  // | N_SIMP_ARITHLOGIC N_REL_OP N_SIMP_ARITHLOGIC
+                  //   {
+                  //     // printRule("ARITHLOGIC_EXPR", "SIMPLE_ARITHLOGIC REL_OP SIMPLE_ARITHLOGIC");
+                  //     if ($1.type != INT && $1.type != FLOAT && $1.type != BOOL)
+                  //         yyerror("Arg 1 must be integer or float or bool");
+                  //     if ($3.type != INT && $3.type != FLOAT && $3.type != BOOL)
+                  //         yyerror("Arg 2 must be integer or float or bool");
+                  //     $$.type = BOOL;
+                  //     if ($2.type == LT)
+                  //     {
+                  //       if ($1.type == INT)
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) < *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) < *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) < *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //       else if ($1.type == FLOAT)
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) < *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) < *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) < *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //       else
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) < *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) < *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) < *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //     }
+                  //     else if ($2.type == GT)
+                  //     {
+                  //       if ($1.type == INT)
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) > *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) > *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) > *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //       else if ($1.type == FLOAT)
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) > *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) > *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) > *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //       else
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) > *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) > *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) > *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //     }
+                  //     else if ($2.type == EQ)
+                  //     {
+                  //       if ($1.type == INT)
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) == *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) == *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) == *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //       else if ($1.type == FLOAT)
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) == *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) == *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) == *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //       else
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) == *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) == *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) == *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //     }
+                  //     else if ($2.type == LE)
+                  //     {
+                  //       if ($1.type == INT)
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) <= *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) <= *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) <= *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //       else if ($1.type == FLOAT)
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) <= *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) <= *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) <= *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //       else
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) <= *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) <= *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) <= *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //     }
+                  //     else if ($2.type == GE)
+                  //     {
+                  //       if ($1.type == INT)
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) >= *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) >= *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) >= *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //       else if ($1.type == FLOAT)
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) >= *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) >= *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) >= *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //       else
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) >= *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) >= *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) >= *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //     }
+                  //     else if ($2.type == NE)
+                  //     {
+                  //       if ($1.type == INT)
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) != *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) != *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(int*)($1.value) != *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //       else if ($1.type == FLOAT)
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) != *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) != *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(float*)($1.value) != *(bool*)($3.value));
+                  //         } 
+                  //       }
+                  //       else
+                  //       {
+                  //         if ($3.type == INT)
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) != *(int*)($3.value));
+                  //         }
+                  //         else if ($3.type == FLOAT)
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) != *(float*)($3.value));
+                  //         }
+                  //         else
+                  //         {
+                  //           $$.value = new bool(*(bool*)($1.value) != *(bool*)($3.value));
+                  //         }
+                  //       }
+                  //     }
+                  //   }
+                  ;
+N_OR_CHAIN        : N_AND_CHAIN N_OR_LIST
                     {
-                      // printRule("ARITHLOGIC_EXPR", "SIMPLE_ARITHLOGIC REL_OP SIMPLE_ARITHLOGIC");
-                      if ($1.type != INT && $1.type != FLOAT && $1.type != BOOL)
+                      if ($2.type != UNDEF)
+                      {
+                        if ($1.type != INT && $1.type != FLOAT && $1.type != BOOL)
                           yyerror("Arg 1 must be integer or float or bool");
-                      if ($3.type != INT && $3.type != FLOAT && $3.type != BOOL)
-                          yyerror("Arg 2 must be integer or float or bool");
-                      $$.type = BOOL;
-                      if ($2.type == LT)
-                      {
+                        $2.expr->setRhs($1.expr);
+                        $$.expr = $2.expr;
+                        $$.type = BOOL;
                         if ($1.type == INT)
                         {
-                          if ($3.type == INT)
+                          if ($2.type == INT)
                           {
-                            $$.value = new bool(*(int*)($1.value) < *(int*)($3.value));
+                            $$.value = new bool((*(int*)($1.value)) || (*(int*)($2.value)));
                           }
-                          else if ($3.type == FLOAT)
+                          else if ($2.type == FLOAT)
                           {
-                            $$.value = new bool(*(int*)($1.value) < *(float*)($3.value));
+                            $$.value = new bool((*(int*)($1.value)) || (*(float*)($2.value)));
                           }
                           else
                           {
-                            $$.value = new bool(*(int*)($1.value) < *(bool*)($3.value));
+                            $$.value = new bool((*(int*)($1.value)) || (*(bool*)($2.value)));
                           }
                         }
                         else if ($1.type == FLOAT)
                         {
-                          if ($3.type == INT)
+                          if ($2.type == INT)
                           {
-                            $$.value = new bool(*(float*)($1.value) < *(int*)($3.value));
+                            $$.value = new bool((*(float*)($1.value)) || (*(int*)($2.value)));
                           }
-                          else if ($3.type == FLOAT)
+                          else if ($2.type == FLOAT)
                           {
-                            $$.value = new bool(*(float*)($1.value) < *(float*)($3.value));
+                            $$.value = new bool((*(float*)($1.value)) || (*(float*)($2.value)));
                           }
                           else
                           {
-                            $$.value = new bool(*(float*)($1.value) < *(bool*)($3.value));
+                            $$.value = new bool((*(float*)($1.value)) || (*(bool*)($2.value)));
                           }
                         }
                         else
                         {
-                          if ($3.type == INT)
+                          if ($2.type == INT)
                           {
-                            $$.value = new bool(*(bool*)($1.value) < *(int*)($3.value));
+                            $$.value = new bool((*(bool*)($1.value)) || (*(int*)($2.value)));
                           }
-                          else if ($3.type == FLOAT)
+                          else if ($2.type == FLOAT)
                           {
-                            $$.value = new bool(*(bool*)($1.value) < *(float*)($3.value));
+                            $$.value = new bool((*(bool*)($1.value)) || (*(float*)($2.value)));
                           }
                           else
                           {
-                            $$.value = new bool(*(bool*)($1.value) < *(bool*)($3.value));
+                            $$.value = new bool((*(bool*)($1.value)) || (*(bool*)($2.value)));
                           }
                         }
                       }
-                      else if ($2.type == GT)
+                      else
                       {
+                        $$.expr = $1.expr;
                         if ($1.type == INT)
                         {
-                          if ($3.type == INT)
-                          {
-                            $$.value = new bool(*(int*)($1.value) > *(int*)($3.value));
-                          }
-                          else if ($3.type == FLOAT)
-                          {
-                            $$.value = new bool(*(int*)($1.value) > *(float*)($3.value));
-                          }
-                          else
-                          {
-                            $$.value = new bool(*(int*)($1.value) > *(bool*)($3.value));
-                          }
+                          $$.value = new int(*(int*)($1.value));
+                          $$.type = $1.type;
                         }
                         else if ($1.type == FLOAT)
                         {
+                          $$.value = new float(*(float*)($1.value));
+                          $$.type = $1.type;
+                        }
+                        else if ($1.type == BOOL)
+                        {
+                          $$.value = new bool(*(bool*)($1.value));
+                          $$.type = $1.type;
+                        }
+                        else if ($1.type == STR)
+                        {
+                          $$.value = new std::string(*(std::string*)($1.value));
+                          $$.type = STR;
+                        }
+                      }
+                      // printRule("SIMPLE_ARITHLOGIC", "TERM ADD_OP_LIST");
+                    }
+                  ;
+N_OR_LIST         : T_OR N_AND_CHAIN N_OR_LIST
+                    {
+                      if ($2.type != INT && $2.type != FLOAT && $2.type != BOOL)
+                        yyerror("Arg 2 must be integer or float or bool");
+                      if ($3.type != UNDEF)
+                      {
+                        $$.operand = OR;
+                        $3.expr->setRhs($2.expr);
+                        $$.expr = new Or($3.expr, nullptr);
+                        $$.type = BOOL;
+                        if ($2.type == INT)
+                        {
                           if ($3.type == INT)
                           {
-                            $$.value = new bool(*(float*)($1.value) > *(int*)($3.value));
+                            $$.value = new bool((*(int*)($2.value)) || (*(int*)($3.value)));
                           }
                           else if ($3.type == FLOAT)
                           {
-                            $$.value = new bool(*(float*)($1.value) > *(float*)($3.value));
+                            $$.value = new bool((*(int*)($2.value)) || (*(float*)($3.value)));
                           }
                           else
                           {
-                            $$.value = new bool(*(float*)($1.value) > *(bool*)($3.value));
+                            $$.value = new bool((*(int*)($2.value)) || (*(bool*)($3.value)));
+                          }
+                        }
+                        else if ($2.type == FLOAT)
+                        {
+                          if ($3.type == INT)
+                          {
+                            $$.value = new bool((*(float*)($2.value)) || (*(int*)($3.value)));
+                          }
+                          else if ($3.type == FLOAT)
+                          {
+                            $$.value = new bool((*(float*)($2.value)) || (*(float*)($3.value)));
+                          }
+                          else
+                          {
+                            $$.value = new bool((*(float*)($2.value)) || (*(bool*)($3.value)));
                           }
                         }
                         else
                         {
                           if ($3.type == INT)
                           {
-                            $$.value = new bool(*(bool*)($1.value) > *(int*)($3.value));
+                            $$.value = new bool((*(bool*)($2.value)) || (*(int*)($3.value)));
                           }
                           else if ($3.type == FLOAT)
                           {
-                            $$.value = new bool(*(bool*)($1.value) > *(float*)($3.value));
+                            $$.value = new bool((*(bool*)($2.value)) || (*(float*)($3.value)));
                           }
                           else
                           {
-                            $$.value = new bool(*(bool*)($1.value) > *(bool*)($3.value));
+                            $$.value = new bool((*(bool*)($2.value)) || (*(bool*)($3.value)));
                           }
                         }
                       }
-                      else if ($2.type == EQ)
+                      else
                       {
-                        if ($1.type == INT)
+                        $$.operand = OR;
+                        $$.expr = new Or($2.expr, nullptr);
+                        if ($2.type == INT)
                         {
-                          if ($3.type == INT)
-                          {
-                            $$.value = new bool(*(int*)($1.value) == *(int*)($3.value));
-                          }
-                          else if ($3.type == FLOAT)
-                          {
-                            $$.value = new bool(*(int*)($1.value) == *(float*)($3.value));
-                          }
-                          else
-                          {
-                            $$.value = new bool(*(int*)($1.value) == *(bool*)($3.value));
-                          }
+                          $$.value = new int(*(int*)($2.value));
+                          $$.type = $2.type;
                         }
-                        else if ($1.type == FLOAT)
+                        else if ($2.type == FLOAT)
                         {
-                          if ($3.type == INT)
-                          {
-                            $$.value = new bool(*(float*)($1.value) == *(int*)($3.value));
-                          }
-                          else if ($3.type == FLOAT)
-                          {
-                            $$.value = new bool(*(float*)($1.value) == *(float*)($3.value));
-                          }
-                          else
-                          {
-                            $$.value = new bool(*(float*)($1.value) == *(bool*)($3.value));
-                          }
+                          $$.value = new float(*(float*)($2.value));
+                          $$.type = $2.type;
                         }
                         else
                         {
-                          if ($3.type == INT)
-                          {
-                            $$.value = new bool(*(bool*)($1.value) == *(int*)($3.value));
-                          }
-                          else if ($3.type == FLOAT)
-                          {
-                            $$.value = new bool(*(bool*)($1.value) == *(float*)($3.value));
-                          }
-                          else
-                          {
-                            $$.value = new bool(*(bool*)($1.value) == *(bool*)($3.value));
-                          }
+                          $$.value = new bool(*(bool*)($2.value));
+                          $$.type = $2.type;
                         }
                       }
-                      else if ($2.type == LE)
+                    }
+                  | /* epsilon */
+                    {
+                      $$.type == UNDEF;
+                    }
+                  ;
+N_AND_CHAIN       : N_SIMP_ARITHLOGIC N_AND_LIST
+                    {
+                      // printRule("TERM", "FACTOR MULT_OP_LIST");
+                      if ($2.type == UNDEF)
                       {
+                        $$.type = $1.type;
+                        $$.expr = $1.expr;
                         if ($1.type == INT)
                         {
-                          if ($3.type == INT)
-                          {
-                            $$.value = new bool(*(int*)($1.value) <= *(int*)($3.value));
-                          }
-                          else if ($3.type == FLOAT)
-                          {
-                            $$.value = new bool(*(int*)($1.value) <= *(float*)($3.value));
-                          }
-                          else
-                          {
-                            $$.value = new bool(*(int*)($1.value) <= *(bool*)($3.value));
-                          }
+                          $$.value = new int(*(int*)($1.value));
                         }
                         else if ($1.type == FLOAT)
                         {
-                          if ($3.type == INT)
-                          {
-                            $$.value = new bool(*(float*)($1.value) <= *(int*)($3.value));
-                          }
-                          else if ($3.type == FLOAT)
-                          {
-                            $$.value = new bool(*(float*)($1.value) <= *(float*)($3.value));
-                          }
-                          else
-                          {
-                            $$.value = new bool(*(float*)($1.value) <= *(bool*)($3.value));
-                          }
+                          $$.value = new float(*(float*)($1.value));
                         }
-                        else
+                        else if ($1.type == BOOL)
                         {
-                          if ($3.type == INT)
-                          {
-                            $$.value = new bool(*(bool*)($1.value) <= *(int*)($3.value));
-                          }
-                          else if ($3.type == FLOAT)
-                          {
-                            $$.value = new bool(*(bool*)($1.value) <= *(float*)($3.value));
-                          }
-                          else
-                          {
-                            $$.value = new bool(*(bool*)($1.value) <= *(bool*)($3.value));
-                          }
+                          $$.value = new bool(*(bool*)($1.value));
+                        }
+                        else if ($1.type == STR)
+                        {
+                          $$.value = new string(*(string*)($1.value));
+                        }
+                        else if ($1.type == LIST)
+                        {
+                          $$.value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($1.value));
                         }
                       }
-                      else if ($2.type == GE)
+                      else
                       {
+                        if ($1.type != INT && $1.type != FLOAT && $1.type != BOOL)
+                          yyerror("Arg 1 must be integer or float or bool");
+                        if ($2.expr->getRhs() == nullptr)
+                          $2.expr->setRhs($1.expr);
+                        else
+                          $2.expr->setLhs($1.expr);
+                        $$.expr = $2.expr;
+                        $$.type = BOOL;
                         if ($1.type == INT)
                         {
-                          if ($3.type == INT)
+                          if ($2.type == INT)
                           {
-                            $$.value = new bool(*(int*)($1.value) >= *(int*)($3.value));
+                            $$.value = new bool((*(int*)($1.value)) && (*(int*)($2.value)));
                           }
-                          else if ($3.type == FLOAT)
+                          else if ($2.type == FLOAT)
                           {
-                            $$.value = new bool(*(int*)($1.value) >= *(float*)($3.value));
+                            $$.value = new bool((*(int*)($1.value)) && (*(float*)($2.value)));
                           }
                           else
                           {
-                            $$.value = new bool(*(int*)($1.value) >= *(bool*)($3.value));
+                            $$.value = new bool((*(int*)($1.value)) && (*(bool*)($2.value)));
                           }
                         }
                         else if ($1.type == FLOAT)
                         {
-                          if ($3.type == INT)
+                          if ($2.type == INT)
                           {
-                            $$.value = new bool(*(float*)($1.value) >= *(int*)($3.value));
+                            $$.value = new bool((*(float*)($1.value)) && (*(int*)($2.value)));
                           }
-                          else if ($3.type == FLOAT)
+                          else if ($2.type == FLOAT)
                           {
-                            $$.value = new bool(*(float*)($1.value) >= *(float*)($3.value));
+                            $$.value = new bool((*(float*)($1.value)) && (*(float*)($2.value)));
                           }
                           else
                           {
-                            $$.value = new bool(*(float*)($1.value) >= *(bool*)($3.value));
+                            $$.value = new bool((*(float*)($1.value)) && (*(bool*)($2.value)));
                           }
                         }
                         else
                         {
-                          if ($3.type == INT)
+                          if ($2.type == INT)
                           {
-                            $$.value = new bool(*(bool*)($1.value) >= *(int*)($3.value));
+                            $$.value = new bool((*(bool*)($1.value)) && (*(int*)($2.value)));
                           }
-                          else if ($3.type == FLOAT)
+                          else if ($2.type == FLOAT)
                           {
-                            $$.value = new bool(*(bool*)($1.value) >= *(float*)($3.value));
-                          }
-                          else
-                          {
-                            $$.value = new bool(*(bool*)($1.value) >= *(bool*)($3.value));
-                          }
-                        }
-                      }
-                      else if ($2.type == NE)
-                      {
-                        if ($1.type == INT)
-                        {
-                          if ($3.type == INT)
-                          {
-                            $$.value = new bool(*(int*)($1.value) != *(int*)($3.value));
-                          }
-                          else if ($3.type == FLOAT)
-                          {
-                            $$.value = new bool(*(int*)($1.value) != *(float*)($3.value));
+                            $$.value = new bool((*(bool*)($1.value)) && (*(float*)($2.value)));
                           }
                           else
                           {
-                            $$.value = new bool(*(int*)($1.value) != *(bool*)($3.value));
-                          }
-                        }
-                        else if ($1.type == FLOAT)
-                        {
-                          if ($3.type == INT)
-                          {
-                            $$.value = new bool(*(float*)($1.value) != *(int*)($3.value));
-                          }
-                          else if ($3.type == FLOAT)
-                          {
-                            $$.value = new bool(*(float*)($1.value) != *(float*)($3.value));
-                          }
-                          else
-                          {
-                            $$.value = new bool(*(float*)($1.value) != *(bool*)($3.value));
-                          } 
-                        }
-                        else
-                        {
-                          if ($3.type == INT)
-                          {
-                            $$.value = new bool(*(bool*)($1.value) != *(int*)($3.value));
-                          }
-                          else if ($3.type == FLOAT)
-                          {
-                            $$.value = new bool(*(bool*)($1.value) != *(float*)($3.value));
-                          }
-                          else
-                          {
-                            $$.value = new bool(*(bool*)($1.value) != *(bool*)($3.value));
+                            $$.value = new bool((*(bool*)($1.value)) && (*(bool*)($2.value)));
                           }
                         }
                       }
                     }
                   ;
+N_AND_LIST        : T_AND N_SIMP_ARITHLOGIC N_AND_LIST
+                    {
+                      // printRule("MULT_OP_LIST", "MULT_OP FACTOR MULT_OP_LIST");
+                      if ($2.type != INT && $2.type != FLOAT && $2.type != BOOL)
+                        yyerror("Arg 2 must be integer or float or bool");
+                      if ($3.type != UNDEF)
+                      {
+                        $$.operand = AND;
+                        if ($3.expr->getRhs() == nullptr)
+                          $3.expr->setRhs($2.expr);
+                        else
+                          $3.expr->setLhs($2.expr);
+                        $$.expr = $3.expr;
+                        $$.type = BOOL;
+                        if ($2.type == INT)
+                        {
+                          if ($3.type == INT)
+                          {
+                            $$.value = new bool((*(int*)($2.value)) && (*(int*)($3.value)));
+                          }
+                          else if ($3.type == FLOAT)
+                          {
+                            $$.value = new bool((*(int*)($2.value)) && (*(float*)($3.value)));
+                          }
+                          else
+                          {
+                            $$.value = new bool((*(int*)($2.value)) && (*(bool*)($3.value)));
+                          }
+                        }
+                        else if ($2.type == FLOAT)
+                        {
+                          if ($3.type == INT)
+                          {
+                            $$.value = new bool((*(float*)($2.value)) && (*(int*)($3.value)));
+                          }
+                          else if ($3.type == FLOAT)
+                          {
+                            $$.value = new bool((*(float*)($2.value)) && (*(float*)($3.value)));
+                          }
+                          else
+                          {
+                            $$.value = new bool((*(float*)($2.value)) && (*(bool*)($3.value)));
+                          }
+                        }
+                        else
+                        {
+                          if ($3.type == INT)
+                          {
+                            $$.value = new bool((*(bool*)($2.value)) && (*(int*)($3.value)));
+                          }
+                          else if ($3.type == FLOAT)
+                          {
+                            $$.value = new bool((*(bool*)($2.value)) && (*(float*)($3.value)));
+                          }
+                          else
+                          {
+                            $$.value = new bool((*(bool*)($2.value)) && (*(bool*)($3.value)));
+                          }
+                        }
+                      }
+                      else
+                      {
+                        $$.expr = new And($2.expr, nullptr);
+                        if ($2.type == INT)
+                        {
+                          $$.value = new int(*(int*)($2.value));
+                          $$.operand = AND;
+                          $$.type = $2.type;
+                        }
+                        else if ($2.type == FLOAT)
+                        {
+                          $$.value = new float(*(float*)($2.value));
+                          $$.operand = AND;
+                          $$.type = $2.type;
+                        }
+                        else
+                        {
+                          $$.value = new bool(*(bool*)($2.value));
+                          $$.operand = AND;
+                          $$.type = $2.type;
+                        }
+                      }
+                    }
+                  | /* epsilon */
+                    {
+                      $$.type == UNDEF;
+                    }
+                  ;
+// N_COMP_CHAIN      : N_SIMP_ARITHLOGIC N_COMP_LIST
+//                     {
+                      
+//                     }
+//                   ;
+// N_COMP_LIST       : N_REL_OP N_SIMP_ARITHLOGIC N_COMP_LIST
+//                     {
+                      
+//                     }
+//                   | /* epsilon */
+//                     {
+//                       $$.type == UNDEF;
+//                     }
+//                   ;
 N_SIMP_ARITHLOGIC : N_TERM N_ADD_OP_LIST
                     {
                       if ($2.type != UNDEF)
                       {
                         if ($1.type != INT && $1.type != FLOAT && $1.type != BOOL)
                           yyerror("Arg 1 must be integer or float or bool");
+                        $2.expr->setRhs($1.expr);
+                        $$.expr = $2.expr;
                         if ($2.operand == ADD)
                         {
                           if ($1.type == INT)
@@ -1304,55 +1722,6 @@ N_SIMP_ARITHLOGIC : N_TERM N_ADD_OP_LIST
                             {
                               $$.value = new int((*(bool*)($1.value)) + (*(bool*)($2.value)));
                               $$.type = INT;
-                            }
-                          }
-                        }
-                        else if ($2.operand == OR)
-                        {
-                          $$.type = BOOL;
-                          if ($1.type == INT)
-                          {
-                            if ($2.type == INT)
-                            {
-                              $$.value = new bool((*(int*)($1.value)) || (*(int*)($2.value)));
-                            }
-                            else if ($2.type == FLOAT)
-                            {
-                              $$.value = new bool((*(int*)($1.value)) || (*(float*)($2.value)));
-                            }
-                            else
-                            {
-                              $$.value = new bool((*(int*)($1.value)) || (*(bool*)($2.value)));
-                            }
-                          }
-                          else if ($1.type == FLOAT)
-                          {
-                            if ($2.type == INT)
-                            {
-                              $$.value = new bool((*(float*)($1.value)) || (*(int*)($2.value)));
-                            }
-                            else if ($2.type == FLOAT)
-                            {
-                              $$.value = new bool((*(float*)($1.value)) || (*(float*)($2.value)));
-                            }
-                            else
-                            {
-                              $$.value = new bool((*(float*)($1.value)) || (*(bool*)($2.value)));
-                            }
-                          }
-                          else
-                          {
-                            if ($2.type == INT)
-                            {
-                              $$.value = new bool((*(bool*)($1.value)) || (*(int*)($2.value)));
-                            }
-                            else if ($2.type == FLOAT)
-                            {
-                              $$.value = new bool((*(bool*)($1.value)) || (*(float*)($2.value)));
-                            }
-                            else
-                            {
-                              $$.value = new bool((*(bool*)($1.value)) || (*(bool*)($2.value)));
                             }
                           }
                         }
@@ -1446,6 +1815,16 @@ N_ADD_OP_LIST     : N_ADD_OP N_TERM N_ADD_OP_LIST
                       if ($3.type != UNDEF)
                       {
                         $$.operand = $1.type;
+                        if ($1.type == ADD)
+                        {
+                          $3.expr->setRhs($2.expr);
+                          $$.expr = new Addition($3.expr, nullptr);
+                        }
+                        else if ($1.type == SUB)
+                        {
+                          $3.expr->setRhs($2.expr->neg());
+                          $$.expr = new Addition($3.expr, nullptr);
+                        }
                         if ($3.operand == ADD)
                         {
                           if ($2.type == INT)
@@ -1498,55 +1877,6 @@ N_ADD_OP_LIST     : N_ADD_OP N_TERM N_ADD_OP_LIST
                             {
                               $$.value = new int((*(bool*)($2.value)) + (*(bool*)($3.value)));
                               $$.type = INT;
-                            }
-                          }
-                        }
-                        else if ($3.operand == OR)
-                        {
-                          $$.type = BOOL;
-                          if ($2.type == INT)
-                          {
-                            if ($3.type == INT)
-                            {
-                              $$.value = new bool((*(int*)($2.value)) || (*(int*)($3.value)));
-                            }
-                            else if ($3.type == FLOAT)
-                            {
-                              $$.value = new bool((*(int*)($2.value)) || (*(float*)($3.value)));
-                            }
-                            else
-                            {
-                              $$.value = new bool((*(int*)($2.value)) || (*(bool*)($3.value)));
-                            }
-                          }
-                          else if ($2.type == FLOAT)
-                          {
-                            if ($3.type == INT)
-                            {
-                              $$.value = new bool((*(float*)($2.value)) || (*(int*)($3.value)));
-                            }
-                            else if ($3.type == FLOAT)
-                            {
-                              $$.value = new bool((*(float*)($2.value)) || (*(float*)($3.value)));
-                            }
-                            else
-                            {
-                              $$.value = new bool((*(float*)($2.value)) || (*(bool*)($3.value)));
-                            }
-                          }
-                          else
-                          {
-                            if ($3.type == INT)
-                            {
-                              $$.value = new bool((*(bool*)($2.value)) || (*(int*)($3.value)));
-                            }
-                            else if ($3.type == FLOAT)
-                            {
-                              $$.value = new bool((*(bool*)($2.value)) || (*(float*)($3.value)));
-                            }
-                            else
-                            {
-                              $$.value = new bool((*(bool*)($2.value)) || (*(bool*)($3.value)));
                             }
                           }
                         }
@@ -1609,6 +1939,10 @@ N_ADD_OP_LIST     : N_ADD_OP N_TERM N_ADD_OP_LIST
                       else
                       {
                         $$.operand = $1.type;
+                        if ($1.type == ADD)
+                          $$.expr = new Addition($2.expr, nullptr);
+                        else if ($1.type == SUB)
+                          $$.expr = new Addition($2.expr->neg(), nullptr);
                         if ($2.type == INT)
                         {
                           $$.value = new int(*(int*)($2.value));
@@ -1632,7 +1966,7 @@ N_ADD_OP_LIST     : N_ADD_OP N_TERM N_ADD_OP_LIST
                     $$.type = UNDEF;
                     }
                   ;
-N_TERM            : N_FACTOR N_MULT_OP_LIST
+N_TERM            : N_ATOM N_MULT_OP_LIST
                     {
                       // printRule("TERM", "FACTOR MULT_OP_LIST");
                       if ($2.type == UNDEF)
@@ -1663,6 +1997,11 @@ N_TERM            : N_FACTOR N_MULT_OP_LIST
                       {
                         if ($1.type != INT && $1.type != FLOAT && $1.type != BOOL)
                           yyerror("Arg 1 must be integer or float or bool");
+                        if (lastUsed->getRhs() == nullptr)
+                          lastUsed->setRhs($1.expr);
+                        else
+                          lastUsed->setLhs($1.expr);
+                        $$.expr = $2.expr;
                         if ($2.operand == MULT)
                         {
                           if ($1.type == INT)
@@ -1792,55 +2131,6 @@ N_TERM            : N_FACTOR N_MULT_OP_LIST
                                 yyerror("Attempted division by zero");
                               $$.value = new bool((*(bool*)($1.value)) / (*(bool*)($2.value)));
                               $$.type = BOOL;
-                            }
-                          }
-                        }
-                        else if ($2.operand == AND)
-                        {
-                          $$.type = BOOL;
-                          if ($1.type == INT)
-                          {
-                            if ($2.type == INT)
-                            {
-                              $$.value = new bool((*(int*)($1.value)) && (*(int*)($2.value)));
-                            }
-                            else if ($2.type == FLOAT)
-                            {
-                              $$.value = new bool((*(int*)($1.value)) && (*(float*)($2.value)));
-                            }
-                            else
-                            {
-                              $$.value = new bool((*(int*)($1.value)) && (*(bool*)($2.value)));
-                            }
-                          }
-                          else if ($1.type == FLOAT)
-                          {
-                            if ($2.type == INT)
-                            {
-                              $$.value = new bool((*(float*)($1.value)) && (*(int*)($2.value)));
-                            }
-                            else if ($2.type == FLOAT)
-                            {
-                              $$.value = new bool((*(float*)($1.value)) && (*(float*)($2.value)));
-                            }
-                            else
-                            {
-                              $$.value = new bool((*(float*)($1.value)) && (*(bool*)($2.value)));
-                            }
-                          }
-                          else
-                          {
-                            if ($2.type == INT)
-                            {
-                              $$.value = new bool((*(bool*)($1.value)) && (*(int*)($2.value)));
-                            }
-                            else if ($2.type == FLOAT)
-                            {
-                              $$.value = new bool((*(bool*)($1.value)) && (*(float*)($2.value)));
-                            }
-                            else
-                            {
-                              $$.value = new bool((*(bool*)($1.value)) && (*(bool*)($2.value)));
                             }
                           }
                         }
@@ -1977,7 +2267,7 @@ N_TERM            : N_FACTOR N_MULT_OP_LIST
                       }
                     }
                   ;
-N_MULT_OP_LIST    : N_MULT_OP N_FACTOR N_MULT_OP_LIST
+N_MULT_OP_LIST    : N_MULT_OP N_ATOM N_MULT_OP_LIST
                     {
                     // printRule("MULT_OP_LIST", "MULT_OP FACTOR MULT_OP_LIST");
                     if ($2.type != INT && $2.type != FLOAT && $2.type != BOOL)
@@ -1985,6 +2275,27 @@ N_MULT_OP_LIST    : N_MULT_OP N_FACTOR N_MULT_OP_LIST
                     if ($3.type != UNDEF)
                     {
                       $$.operand = $1.type;
+                      if (lastUsed->getRhs() == nullptr)
+                      {
+                        if ($1.type == MULT)
+                          lastUsed->setRhs(new Multiplication($2.expr, nullptr));
+                        else if ($1.type == DIV)
+                          lastUsed->setRhs(new Division(nullptr, $2.expr));
+                        else if ($1.type == MOD)
+                          lastUsed->setRhs(new Modulous(nullptr, $2.expr));
+                        lastUsed = lastUsed->getRhs();
+                      }
+                      else
+                      {
+                        if ($1.type == MULT)
+                          lastUsed->setLhs(new Multiplication($2.expr, nullptr));
+                        else if ($1.type == DIV)
+                          lastUsed->setLhs(new Division(nullptr, $2.expr));
+                        else if ($1.type == MOD)
+                          lastUsed->setLhs(new Modulous(nullptr, $2.expr));
+                        lastUsed = lastUsed->getLhs();
+                      }
+                      $$.expr = $3.expr;
                       if ($3.operand == MULT)
                       {
                         if ($2.type == INT)
@@ -2114,55 +2425,6 @@ N_MULT_OP_LIST    : N_MULT_OP N_FACTOR N_MULT_OP_LIST
                               yyerror("Attempted division by zero");
                             $$.value = new bool((*(bool*)($2.value)) / (*(bool*)($3.value)));
                             $$.type = BOOL;
-                          }
-                        }
-                      }
-                      else if ($3.operand == AND)
-                      {
-                        $$.type = BOOL;
-                        if ($2.type == INT)
-                        {
-                          if ($3.type == INT)
-                          {
-                            $$.value = new bool((*(int*)($2.value)) && (*(int*)($3.value)));
-                          }
-                          else if ($3.type == FLOAT)
-                          {
-                            $$.value = new bool((*(int*)($2.value)) && (*(float*)($3.value)));
-                          }
-                          else
-                          {
-                            $$.value = new bool((*(int*)($2.value)) && (*(bool*)($3.value)));
-                          }
-                        }
-                        else if ($2.type == FLOAT)
-                        {
-                          if ($3.type == INT)
-                          {
-                            $$.value = new bool((*(float*)($2.value)) && (*(int*)($3.value)));
-                          }
-                          else if ($3.type == FLOAT)
-                          {
-                            $$.value = new bool((*(float*)($2.value)) && (*(float*)($3.value)));
-                          }
-                          else
-                          {
-                            $$.value = new bool((*(float*)($2.value)) && (*(bool*)($3.value)));
-                          }
-                        }
-                        else
-                        {
-                          if ($3.type == INT)
-                          {
-                            $$.value = new bool((*(bool*)($2.value)) && (*(int*)($3.value)));
-                          }
-                          else if ($3.type == FLOAT)
-                          {
-                            $$.value = new bool((*(bool*)($2.value)) && (*(float*)($3.value)));
-                          }
-                          else
-                          {
-                            $$.value = new bool((*(bool*)($2.value)) && (*(bool*)($3.value)));
                           }
                         }
                       }
@@ -2299,6 +2561,13 @@ N_MULT_OP_LIST    : N_MULT_OP N_FACTOR N_MULT_OP_LIST
                     }
                     else
                     {
+                      if ($1.type == MULT)
+                        $$.expr = new Multiplication($2.expr, nullptr);
+                      else if ($1.type == DIV)
+                        $$.expr = new Division(nullptr, $2.expr);
+                      else if ($1.type == MOD)
+                        $$.expr = new Modulous(nullptr, $2.expr);
+                      lastUsed = $$.expr;
                       if ($2.type == INT)
                       {
                         $$.value = new int(*(int*)($2.value));
@@ -2325,10 +2594,196 @@ N_MULT_OP_LIST    : N_MULT_OP N_FACTOR N_MULT_OP_LIST
                       $$.type = UNDEF;
                     }
                   ;
+N_ATOM            : N_FACTOR N_MULT_EXP_LIST
+                    {
+                      if ($2.type == UNDEF)
+                      {
+                        $$.type = $1.type;
+                        if ($1.type == INT)
+                        {
+                          $$.value = new int(*(int*)($1.value));
+                        }
+                        else if ($1.type == FLOAT)
+                        {
+                          $$.value = new float(*(float*)($1.value));
+                        }
+                        else if ($1.type == BOOL)
+                        {
+                          $$.value = new bool(*(bool*)($1.value));
+                        }
+                        else if ($1.type == STR)
+                        {
+                          $$.value = new string(*(string*)($1.value));
+                        }
+                        else if ($1.type == LIST)
+                        {
+                          $$.value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($1.value));
+                        }
+                      }
+                      else
+                      {
+                        if ($1.type != INT && $1.type != FLOAT && $1.type != BOOL)
+                          yyerror("Arg 1 must be integer or float or bool");
+                        if ($2.expr->getRhs() == nullptr)
+                          $2.expr->setRhs($1.expr);
+                        else
+                          $2.expr->setLhs($1.expr);
+                        $$.expr = $2.expr;
+                        if ($1.type == INT)
+                        {
+                          if ($2.type == INT)
+                          {
+                            $$.value = new int(pow((*(int*)($1.value)), (*(int*)($2.value))));
+                            $$.type = INT;
+                          }
+                          else if ($2.type == FLOAT)
+                          {
+                            $$.value = new float(pow((*(int*)($1.value)), (*(float*)($2.value))));
+                            $$.type = FLOAT;
+                          }
+                          else
+                          {
+                            $$.value = new int(pow((*(int*)($1.value)), (*(bool*)($2.value))));
+                            $$.type = INT;
+                          }
+                        }
+                        else if ($1.type == FLOAT)
+                        {
+                          if ($2.type == INT)
+                          {
+                            $$.value = new float(pow((*(float*)($1.value)), (*(int*)($2.value))));
+                            $$.type = FLOAT;
+                          }
+                          else if ($2.type == FLOAT)
+                          {
+                            $$.value = new float(pow((*(float*)($1.value)), (*(float*)($2.value))));
+                            $$.type = FLOAT;
+                          }
+                          else
+                          {
+                            $$.value = new float(pow((*(float*)($1.value)), (*(bool*)($2.value))));
+                            $$.type = FLOAT;
+                          }
+                        }
+                        else
+                        {
+                          $$.type = BOOL;
+                          if ($2.type == INT)
+                          {
+                            $$.value = new int(pow((*(bool*)($1.value)), (*(int*)($2.value))));
+                          }
+                          else if ($2.type == FLOAT)
+                          {
+                            $$.value = new float(pow((*(bool*)($1.value)), (*(float*)($2.value))));
+                          }
+                          else
+                          {
+                            $$.value = new bool(pow((*(bool*)($1.value)), (*(bool*)($2.value))));
+                          }
+                        }
+                      }
+                    }
+                  ;
+N_MULT_EXP_LIST   : T_POW N_FACTOR N_MULT_EXP_LIST
+                    {
+                    // printRule("MULT_OP_LIST", "MULT_OP FACTOR MULT_OP_LIST");
+                    if ($2.type != INT && $2.type != FLOAT && $2.type != BOOL)
+                      yyerror("Arg 2 must be integer or float or bool");
+                    if ($3.type != UNDEF)
+                    {
+                      $$.operand = POW;
+                      if ($3.expr->getRhs() == nullptr)
+                        $3.expr->setRhs($2.expr);
+                      else
+                        $3.expr->setLhs($2.expr);
+                      $$.expr = new Exponent(nullptr, $3.expr);
+                      if ($2.type == INT)
+                      {
+                        if ($3.type == INT)
+                        {
+                          $$.value = new int(pow((*(int*)($2.value)), (*(int*)($3.value))));
+                          $$.type = INT;
+                        }
+                        else if ($3.type == FLOAT)
+                        {
+                          $$.value = new float(pow((*(int*)($2.value)), (*(float*)($3.value))));
+                          $$.type = FLOAT;
+                        }
+                        else
+                        {
+                          $$.value = new int(pow((*(int*)($2.value)), (*(bool*)($3.value))));
+                          $$.type = INT;
+                        }
+                      }
+                      else if ($2.type == FLOAT)
+                      {
+                        if ($3.type == INT)
+                        {
+                          $$.value = new float(pow((*(float*)($2.value)), (*(int*)($3.value))));
+                          $$.type = FLOAT;
+                        }
+                        else if ($3.type == FLOAT)
+                        {
+                          $$.value = new float(pow((*(float*)($2.value)), (*(float*)($3.value))));
+                          $$.type = FLOAT;
+                        }
+                        else
+                        {
+                          $$.value = new float(pow((*(float*)($2.value)), (*(bool*)($3.value))));
+                          $$.type = FLOAT;
+                        }
+                      }
+                      else
+                      {
+                        $$.type = BOOL;
+                        if ($3.type == INT)
+                        {
+                          $$.value = new int(pow((*(bool*)($2.value)), (*(int*)($3.value))));
+                        }
+                        else if ($3.type == FLOAT)
+                        {
+                          $$.value = new float(pow((*(bool*)($2.value)), (*(float*)($3.value))));
+                        }
+                        else
+                        {
+                          $$.value = new bool(pow((*(bool*)($2.value)), (*(bool*)($3.value))));
+                        }
+                      }
+                    }
+                    else
+                    {
+                      $$.expr = new Exponent(nullptr, $2.expr);
+                      if ($2.type == INT)
+                      {
+                        $$.value = new int(*(int*)($2.value));
+                        $$.operand = POW;
+                        $$.type = $2.type;
+                      }
+                      else if ($2.type == FLOAT)
+                      {
+                        $$.value = new float(*(float*)($2.value));
+                        $$.operand = POW;
+                        $$.type = $2.type;
+                      }
+                      else
+                      {
+                        $$.value = new bool(*(bool*)($2.value));
+                        $$.operand = POW;
+                        $$.type = $2.type;
+                      }
+                    }
+                  }
+                  | /* epsilon */
+                    {
+                      // printRule("EPSILON", "N_MULT_OP_LIST");
+                      $$.type = UNDEF;
+                    }
+                  ;
 N_FACTOR          : N_VAR
                     {
                       // printRule("FACTOR", "VAR");
                       $$.type = $1.type;
+                      $$.expr = $1.expr;
                       if ($1.type == INT)
                       {
                         $$.value = new int(*(int*)($1.value));
@@ -2346,6 +2801,10 @@ N_FACTOR          : N_VAR
                     {
                       // printRule("FACTOR", "CONST");
                       $$.type = $1.type;
+                      TYPE_INFO temp;
+                      temp.type = $1.type;
+                      temp.value = $1.value;
+                      $$.expr = new Const(temp);
                       if ($1.type == INT)
                       {
                         $$.value = new int(*(int*)($1.value));
@@ -2363,6 +2822,7 @@ N_FACTOR          : N_VAR
                     {
                       // printRule("FACTOR", "( EXPR )");
                       $$.type = $2.type;
+                      $$.expr = $2.expr;
                       if ($2.type == INT)
                       {
                         $$.value = new int(*(int*)($2.value));
@@ -2400,176 +2860,13 @@ N_FACTOR          : N_VAR
                       {
                         $$.value = new bool(!(*(bool*)($2.value)));
                       }
+                      $$.expr = new Not($2.expr);
                     }
                   ;
-N_PAREN_EXPR      : N_IF_EXPR
+N_PAREN_EXPR      : N_ARITHLOGIC_EXPR
                     {
                       $$.type = $1.type;
-                      if ($1.type == INT)
-                      {
-                        $$.value = new int(*(int*)($1.value));
-                      }
-                      else if ($1.type == FLOAT)
-                      {
-                        $$.value = new float(*(float*)($1.value));
-                      }
-                      else if ($1.type == BOOL)
-                      {
-                        $$.value = new bool(*(bool*)($1.value));
-                      }
-                      else if ($1.type == STR)
-                      {
-                        $$.value = new string(*(string*)($1.value));
-                      }
-                    }
-                  | N_WHILE_EXPR
-                    {
-                      $$.type = $1.type;
-                      if ($1.type == INT)
-                      {
-                        $$.value = new int(*(int*)($1.value));
-                      }
-                      else if ($1.type == FLOAT)
-                      {
-                        $$.value = new float(*(float*)($1.value));
-                      }
-                      else if ($1.type == BOOL)
-                      {
-                        $$.value = new bool(*(bool*)($1.value));
-                      }
-                      else if ($1.type == STR)
-                      {
-                        $$.value = new string(*(string*)($1.value));
-                      }
-                    }
-                  | N_FOR_EXPR
-                    {
-                      $$.type = $1.type;
-                      if ($1.type == INT)
-                      {
-                        $$.value = new int(*(int*)($1.value));
-                      }
-                      else if ($1.type == FLOAT)
-                      {
-                        $$.value = new float(*(float*)($1.value));
-                      }
-                      else if ($1.type == BOOL)
-                      {
-                        $$.value = new bool(*(bool*)($1.value));
-                      }
-                      else if ($1.type == STR)
-                      {
-                        $$.value = new string(*(string*)($1.value));
-                      }
-                    }
-                  | N_ARITHLOGIC_EXPR
-                    {
-                      $$.type = $1.type;
-                      if ($1.type == INT)
-                      {
-                        $$.value = new int(*(int*)($1.value));
-                      }
-                      else if ($1.type == FLOAT)
-                      {
-                        $$.value = new float(*(float*)($1.value));
-                      }
-                      else if ($1.type == BOOL)
-                      {
-                        $$.value = new bool(*(bool*)($1.value));
-                      }
-                      else if ($1.type == STR)
-                      {
-                        $$.value = new string(*(string*)($1.value));
-                      }
-                    }
-                  | N_ASSIGNMENT_EXPR
-                    {
-                      $$.type = $1.type;
-                      if ($1.type == INT)
-                      {
-                        $$.value = new int(*(int*)($1.value));
-                      }
-                      else if ($1.type == FLOAT)
-                      {
-                        $$.value = new float(*(float*)($1.value));
-                      }
-                      else if ($1.type == BOOL)
-                      {
-                        $$.value = new bool(*(bool*)($1.value));
-                      }
-                      else if ($1.type == STR)
-                      {
-                        $$.value = new string(*(string*)($1.value));
-                      }
-                    }
-                  | N_OUTPUT_EXPR 
-                    {
-                      $$.type = $1.type;
-                      if ($1.type == INT)
-                      {
-                        $$.value = new int(*(int*)($1.value));
-                      }
-                      else if ($1.type == FLOAT)
-                      {
-                        $$.value = new float(*(float*)($1.value));
-                      }
-                      else if ($1.type == BOOL)
-                      {
-                        $$.value = new bool(*(bool*)($1.value));
-                      }
-                      else if ($1.type == STR)
-                      {
-                        $$.value = new string(*(string*)($1.value));
-                      }
-                    }
-                  | N_INPUT_EXPR
-                    {
-                      $$.type = $1.type;
-                      if ($1.type == INT)
-                      {
-                        $$.value = new int(*(int*)($1.value));
-                      }
-                      else if ($1.type == FLOAT)
-                      {
-                        $$.value = new float(*(float*)($1.value));
-                      }
-                      else if ($1.type == BOOL)
-                      {
-                        $$.value = new bool(*(bool*)($1.value));
-                      }
-                      else if ($1.type == STR)
-                      {
-                        $$.value = new string(*(string*)($1.value));
-                      }
-                    }
-                  | N_LIST_EXPR
-                    {
-                      $$.type = $1.type;
-                      $$.value = new vector<TYPE_INFO>(*(vector<TYPE_INFO>*)($1.value));
-                    }
-                  | N_DICT_EXPR
-                    {
-                      $$.type = $1.type;
-                      if ($1.type == INT)
-                      {
-                        $$.value = new int(*(int*)($1.value));
-                      }
-                      else if ($1.type == FLOAT)
-                      {
-                        $$.value = new float(*(float*)($1.value));
-                      }
-                      else if ($1.type == BOOL)
-                      {
-                        $$.value = new bool(*(bool*)($1.value));
-                      }
-                      else if ($1.type == STR)
-                      {
-                        $$.value = new string(*(string*)($1.value));
-                      }
-                    }
-                  | N_FUNCTION_DEF
-                    {
-                      $$.type = $1.type;
+                      $$.expr = $1.expr;
                       if ($1.type == INT)
                       {
                         $$.value = new int(*(int*)($1.value));
@@ -2608,25 +2905,7 @@ N_PAREN_EXPR      : N_IF_EXPR
                       }
                     }
                   | N_QUIT_EXPR
-                    {
-                      $$.type = $1.type;
-                      if ($1.type == INT)
-                      {
-                        $$.value = new int(*(int*)($1.value));
-                      }
-                      else if ($1.type == FLOAT)
-                      {
-                        $$.value = new float(*(float*)($1.value));
-                      }
-                      else if ($1.type == BOOL)
-                      {
-                        $$.value = new bool(*(bool*)($1.value));
-                      }
-                      else if ($1.type == STR)
-                      {
-                        $$.value = new string(*(string*)($1.value));
-                      }
-                    }
+                    {}
 N_ADD_OP          : T_ADD
                     {
                     // printRule("ADD_OP", "+");
@@ -2636,11 +2915,6 @@ N_ADD_OP          : T_ADD
                     {
                     // printRule("ADD_OP", "-");
                     $$.type = SUB;
-                    }
-                  | T_OR
-                    {
-                    // printRule("ADD_OP", "|");
-                    $$.type = OR;
                     }
                   ;
 N_MULT_OP         : T_MULT
@@ -2653,20 +2927,10 @@ N_MULT_OP         : T_MULT
                     // printRule("MULT_OP", "/");
                     $$.type = DIV;
                     }
-                  | T_AND
-                    {
-                    // printRule("MULT_OP", "&");
-                    $$.type = AND;
-                    }
                   | T_MOD
                     {
                     // printRule("MULT_OP", "%%");
                     $$.type = MOD;
-                    }
-                  | T_POW
-                    {
-                    // printRule("MULT_OP", "^");
-                    $$.type = POW;
                     }
                   ;
 N_REL_OP          : T_LT
@@ -2703,6 +2967,7 @@ N_REL_OP          : T_LT
 N_ASSIGN_OP       : T_ASSIGN
                     {
                       // printRule("T_ASSIGN", "T_ASSIGN_OP");
+                      $$.type = ASSIGN;
                     }
                   | T_MODEQ
                     {
@@ -2733,11 +2998,13 @@ N_VAR             : N_ENTIRE_VAR
                     {
                       // printRule("N_ENTIRE_VAR", "N_VAR");
                       $$.type = $1.type;
+                      $$.expr = new Var(*dynamic_cast<Var*>($1.expr));
                     }
                   | N_SINGLE_ELEMENT
                     {
                       // printRule("N_SINGLE_ELEMENT", "N_VAR");
                       $$.type = $1.type;
+                      $$.expr = $1.expr;
                     }
                   ;
 N_SINGLE_ELEMENT  : T_IDENT T_LBRACKET N_IND_EXPR T_RBRACKET
@@ -2763,6 +3030,7 @@ N_SINGLE_ELEMENT  : T_IDENT T_LBRACKET N_IND_EXPR T_RBRACKET
                         $$.value = (*(vector<TYPE_INFO>*)(findEntryInAnyScopeTYPE($1).value))[(*(int*)($3.value))].value;
                         $$.type = (*(vector<TYPE_INFO>*)(findEntryInAnyScopeTYPE($1).value))[(*(int*)($3.value))].type;
                       }
+                      $$.expr = new IndVar($1, (*(int*)($3.value)));
                     }
                   ;
 N_ENTIRE_VAR      : T_IDENT
@@ -2771,6 +3039,7 @@ N_ENTIRE_VAR      : T_IDENT
                       if (!findEntryInAnyScope($1))
                         yyerror("Undefined identifier");
                       
+                      $$.expr = new Var($1);
                       $$.type = findEntryInAnyScopeTYPE($1).type;
                       $$.numParams = findEntryInAnyScopeTYPE($1).numParams;
                       $$.returnType = findEntryInAnyScopeTYPE($1).returnType;
@@ -2857,8 +3126,7 @@ TYPE_INFO& findEntryInAnyScopeTYPE(const std::string theName)
     temp.isFuncParam = false;
     return(temp);
   }
-  static TYPE_INFO type;
-  type = ScopeStack.top( ).findEntry(theName);
+  TYPE_INFO& type = ScopeStack.top( ).findEntry(theName);
   if (type.type != UNDEF)
     return(type);
   else { // check in "next higher"scope
@@ -2870,7 +3138,7 @@ TYPE_INFO& findEntryInAnyScopeTYPE(const std::string theName)
   }
 }
 
-void valueAssignment(void* leftValue, void* rightValue, int typeCode)
+void valueAssignment(void*& leftValue, void* rightValue, int typeCode)
 {
   if (typeCode == STR)
   {
@@ -2959,16 +3227,538 @@ void outputValue(void const * const value, const int type)
   }
   else if (type == STR)
   {
-    cout << *(std::string*)(value) << endl;
+    cout << "\'" << *(std::string*)(value) << "\'" << endl;
   }
   else if (type == BOOL)
   {
-    cout << *(bool*)(value) << endl;
+    cout << ((*(bool*)(value)) ? "True" : "False") << endl;
   }
   else if (type == LIST)
   {
     printList(*(vector<TYPE_INFO>*)(value));
     cout << endl;
+  }
+}
+
+void doAddition(TYPE_INFO& val, Expression* lhs, Expression* rhs)
+{
+  TYPE_INFO lhsVal = lhs->eval(), rhsVal = rhs->eval();
+  if (lhsVal.type == INT)
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new int((*(int*)(lhsVal.value)) + (*(int*)(rhsVal.value)));
+      val.type = INT;
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new float((*(int*)(lhsVal.value)) + (*(float*)(rhsVal.value)));
+      val.type = FLOAT;
+    }
+    else
+    {
+      val.value = new int((*(int*)(lhsVal.value)) + (*(bool*)(rhsVal.value)));
+      val.type = INT;
+    }
+  }
+  else if (lhsVal.type == FLOAT)
+  {
+    val.type = FLOAT;
+    if (rhsVal.type == INT)
+    {
+      val.value = new float((*(float*)(lhsVal.value)) + (*(int*)(rhsVal.value)));
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new float((*(float*)(lhsVal.value)) + (*(float*)(rhsVal.value)));
+    }
+    else
+    {
+      val.value = new float((*(float*)(lhsVal.value)) + (*(bool*)(rhsVal.value)));
+    }
+  }
+  else
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new int((*(bool*)(lhsVal.value)) + (*(int*)(rhsVal.value)));
+      val.type = INT;
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new float((*(bool*)(lhsVal.value)) + (*(float*)(rhsVal.value)));
+      val.type = FLOAT;
+    }
+    else
+    {
+      val.value = new int((*(bool*)(lhsVal.value)) + (*(bool*)(rhsVal.value)));
+      val.type = INT;
+    }
+  }
+}
+
+void doMultiplication(TYPE_INFO& val, Expression* lhs, Expression* rhs)
+{
+  TYPE_INFO lhsVal = lhs->eval(), rhsVal = rhs->eval();
+  if (lhsVal.type == INT)
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new int((*(int*)(lhsVal.value)) * (*(int*)(rhsVal.value)));
+      val.type = INT;
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new float((*(int*)(lhsVal.value)) * (*(float*)(rhsVal.value)));
+      val.type = FLOAT;
+    }
+    else
+    {
+      val.value = new int((*(int*)(lhsVal.value)) * (*(bool*)(rhsVal.value)));
+      val.type = INT;
+    }
+  }
+  else if (lhsVal.type == FLOAT)
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new float((*(float*)(lhsVal.value)) * (*(int*)(rhsVal.value)));
+      val.type = FLOAT;
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new float((*(float*)(lhsVal.value)) * (*(float*)(rhsVal.value)));
+      val.type = FLOAT;
+    }
+    else
+    {
+      val.value = new float((*(float*)(lhsVal.value)) * (*(bool*)(rhsVal.value)));
+      val.type = FLOAT;
+    }
+  }
+  else
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new int((*(bool*)(lhsVal.value)) * (*(int*)(rhsVal.value)));
+      val.type = INT;
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new float((*(bool*)(lhsVal.value)) * (*(float*)(rhsVal.value)));
+      val.type = FLOAT;
+    }
+    else
+    {
+      val.value = new bool((*(bool*)(lhsVal.value)) * (*(bool*)(rhsVal.value)));
+      val.type = BOOL;
+    }
+  }
+}
+
+void doSubtraction(TYPE_INFO& val, Expression* lhs, Expression* rhs)
+{
+  TYPE_INFO lhsVal = lhs->eval(), rhsVal = rhs->eval();
+  if (lhsVal.type == INT)
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new int((*(int*)(lhsVal.value)) - (*(int*)(rhsVal.value)));
+      val.type = INT;
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new float((*(int*)(lhsVal.value)) - (*(float*)(rhsVal.value)));
+      val.type = FLOAT;
+    }
+    else
+    {
+      val.value = new int((*(int*)(lhsVal.value)) - (*(bool*)(rhsVal.value)));
+      val.type = INT;
+    }
+  }
+  else if (lhsVal.type == FLOAT)
+  {
+    val.type = FLOAT;
+    if (rhsVal.type == INT)
+    {
+      val.value = new float((*(float*)(lhsVal.value)) - (*(int*)(rhsVal.value)));
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new float((*(float*)(lhsVal.value)) - (*(float*)(rhsVal.value)));
+    }
+    else
+    {
+      val.value = new float((*(float*)(lhsVal.value)) - (*(bool*)(rhsVal.value)));
+    }
+  }
+  else
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new int((*(bool*)(lhsVal.value)) - (*(int*)(rhsVal.value)));
+      val.type = INT;
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new float((*(bool*)(lhsVal.value)) - (*(float*)(rhsVal.value)));
+      val.type = FLOAT;
+    }
+    else
+    {
+      val.value = new int((*(bool*)(lhsVal.value)) - (*(bool*)(rhsVal.value)));
+      val.type = INT;
+    }
+  }
+}
+
+void doDivision(TYPE_INFO& val, Expression* lhs, Expression* rhs)
+{
+  TYPE_INFO lhsVal = lhs->eval(), rhsVal = rhs->eval();
+  if (lhsVal.type == INT)
+  {
+    if (rhsVal.type == INT)
+    {
+      if ((*(int*)(rhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new int((*(int*)(lhsVal.value)) / (*(int*)(rhsVal.value)));
+      val.type = INT;
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      if ((*(float*)(rhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new float((*(int*)(lhsVal.value)) / (*(float*)(rhsVal.value)));
+      val.type = FLOAT;
+    }
+    else
+    {
+      if ((*(bool*)(rhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new int((*(int*)(lhsVal.value)) / (*(bool*)(rhsVal.value)));
+      val.type = INT;
+    }
+  }
+  else if (lhsVal.type == FLOAT)
+  {
+    if (rhsVal.type == INT)
+    {
+      if ((*(int*)(rhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new float((*(float*)(lhsVal.value)) / (*(int*)(rhsVal.value)));
+      val.type = FLOAT;
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      if ((*(float*)(rhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new float((*(float*)(lhsVal.value)) / (*(float*)(rhsVal.value)));
+      val.type = FLOAT;
+    }
+    else
+    {
+      if ((*(bool*)(rhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new float((*(float*)(lhsVal.value)) / (*(bool*)(rhsVal.value)));
+      val.type = FLOAT;
+    }
+  }
+  else
+  {
+    if (rhsVal.type == INT)
+    {
+      if ((*(int*)(rhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new int((*(bool*)(lhsVal.value)) / (*(int*)(rhsVal.value)));
+      val.type = INT;
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      if ((*(float*)(rhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new float((*(bool*)(lhsVal.value)) / (*(float*)(rhsVal.value)));
+      val.type = FLOAT;
+    }
+    else
+    {
+      if ((*(bool*)(rhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new bool((*(bool*)(lhsVal.value)) / (*(bool*)(rhsVal.value)));
+      val.type = BOOL;
+    }
+  }
+}
+
+void doModulous(TYPE_INFO& val, Expression* rhs, Expression* lhs)
+{
+  TYPE_INFO lhsVal = lhs->eval(), rhsVal = rhs->eval();
+  if (rhsVal.type == INT)
+  {
+    if (lhsVal.type == INT)
+    {
+      if ((*(int*)(lhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new int((*(int*)(rhsVal.value)) % (*(int*)(lhsVal.value)));
+      val.type = INT;
+    }
+    else if (lhsVal.type == FLOAT)
+    {
+      if ((*(float*)(lhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new float(fmod((*(int*)(rhsVal.value)), (*(float*)(lhsVal.value))));
+      val.type = FLOAT;
+    }
+    else
+    {
+      if ((*(bool*)(lhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new int((*(int*)(rhsVal.value)) % (*(bool*)(lhsVal.value)));
+      val.type = INT;
+    }
+  }
+  else if (rhsVal.type == FLOAT)
+  {
+    if (lhsVal.type == INT)
+    {
+      if ((*(int*)(lhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new float(fmod((*(float*)(rhsVal.value)), (*(int*)(lhsVal.value))));
+      val.type = FLOAT;
+    }
+    else if (lhsVal.type == FLOAT)
+    {
+      if ((*(float*)(lhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new float(fmod((*(float*)(rhsVal.value)), (*(float*)(lhsVal.value))));
+      val.type = FLOAT;
+    }
+    else
+    {
+      if ((*(bool*)(lhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new float(fmod((*(float*)(rhsVal.value)), (*(bool*)(lhsVal.value))));
+      val.type = FLOAT;
+    }
+  }
+  else
+  {
+    if (lhsVal.type == INT)
+    {
+      if ((*(int*)(lhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new bool((*(bool*)(rhsVal.value)) % (*(int*)(lhsVal.value)));
+      val.type = BOOL;
+    }
+    else if (lhsVal.type == FLOAT)
+    {
+      if ((*(float*)(lhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new bool(fmod((*(bool*)(rhsVal.value)), (*(float*)(lhsVal.value))));
+      val.type = BOOL;
+    }
+    else
+    {
+      if ((*(bool*)(lhsVal.value)) == 0)
+        yyerror("Attempted division by zero");
+      val.value = new bool((*(bool*)(rhsVal.value)) % (*(bool*)(lhsVal.value)));
+      val.type = BOOL;
+    }
+  }
+}
+
+void doPow(TYPE_INFO& val, Expression* lhs, Expression* rhs)
+{
+  TYPE_INFO lhsVal = lhs->eval(), rhsVal = rhs->eval();
+  if (lhsVal.type == INT)
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new int(pow((*(int*)(lhsVal.value)), (*(int*)(rhsVal.value))));
+      val.type = INT;
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new float(pow((*(int*)(lhsVal.value)), (*(float*)(rhsVal.value))));
+      val.type = FLOAT;
+    }
+    else
+    {
+      val.value = new int(pow((*(int*)(lhsVal.value)), (*(bool*)(rhsVal.value))));
+      val.type = INT;
+    }
+  }
+  else if (lhsVal.type == FLOAT)
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new float(pow((*(float*)(lhsVal.value)), (*(int*)(rhsVal.value))));
+      val.type = FLOAT;
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new float(pow((*(float*)(lhsVal.value)), (*(float*)(rhsVal.value))));
+      val.type = FLOAT;
+    }
+    else
+    {
+      val.value = new float(pow((*(float*)(lhsVal.value)), (*(bool*)(rhsVal.value))));
+      val.type = FLOAT;
+    }
+  }
+  else
+  {
+    val.type = BOOL;
+    if (rhsVal.type == INT)
+    {
+      val.value = new int(pow((*(bool*)(lhsVal.value)), (*(int*)(rhsVal.value))));
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new float(pow((*(bool*)(lhsVal.value)), (*(float*)(rhsVal.value))));
+    }
+    else
+    {
+      val.value = new bool(pow((*(bool*)(lhsVal.value)), (*(bool*)(rhsVal.value))));
+    }
+  }
+}
+
+void doOr(TYPE_INFO& val, Expression* lhs, Expression* rhs)
+{
+  TYPE_INFO lhsVal = lhs->eval(), rhsVal = rhs->eval();
+  val.type = BOOL;
+  if (lhsVal.type == INT)
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new bool((*(int*)(lhsVal.value)) || (*(int*)(rhsVal.value)));
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new bool((*(int*)(lhsVal.value)) || (*(float*)(rhsVal.value)));
+    }
+    else
+    {
+      val.value = new bool((*(int*)(lhsVal.value)) || (*(bool*)(rhsVal.value)));
+    }
+  }
+  else if (lhsVal.type == FLOAT)
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new bool((*(float*)(lhsVal.value)) || (*(int*)(rhsVal.value)));
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new bool((*(float*)(lhsVal.value)) || (*(float*)(rhsVal.value)));
+    }
+    else
+    {
+      val.value = new bool((*(float*)(lhsVal.value)) || (*(bool*)(rhsVal.value)));
+    }
+  }
+  else
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new bool((*(bool*)(lhsVal.value)) || (*(int*)(rhsVal.value)));
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new bool((*(bool*)(lhsVal.value)) || (*(float*)(rhsVal.value)));
+    }
+    else
+    {
+      val.value = new bool((*(bool*)(lhsVal.value)) || (*(bool*)(rhsVal.value)));
+    }
+  }
+}
+
+void doAnd(TYPE_INFO& val, Expression* lhs, Expression* rhs)
+{
+  TYPE_INFO lhsVal = lhs->eval(), rhsVal = rhs->eval();
+  val.type = BOOL;
+  if (lhsVal.type == INT)
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new bool((*(int*)(lhsVal.value)) && (*(int*)(rhsVal.value)));
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new bool((*(int*)(lhsVal.value)) && (*(float*)(rhsVal.value)));
+    }
+    else
+    {
+      val.value = new bool((*(int*)(lhsVal.value)) && (*(bool*)(rhsVal.value)));
+    }
+  }
+  else if (lhsVal.type == FLOAT)
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new bool((*(float*)(lhsVal.value)) && (*(int*)(rhsVal.value)));
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new bool((*(float*)(lhsVal.value)) && (*(float*)(rhsVal.value)));
+    }
+    else
+    {
+      val.value = new bool((*(float*)(lhsVal.value)) && (*(bool*)(rhsVal.value)));
+    }
+  }
+  else
+  {
+    if (rhsVal.type == INT)
+    {
+      val.value = new bool((*(bool*)(lhsVal.value)) && (*(int*)(rhsVal.value)));
+    }
+    else if (rhsVal.type == FLOAT)
+    {
+      val.value = new bool((*(bool*)(lhsVal.value)) && (*(float*)(rhsVal.value)));
+    }
+    else
+    {
+      val.value = new bool((*(bool*)(lhsVal.value)) && (*(bool*)(rhsVal.value)));
+    }
+  }
+}
+
+void doNegate(string name)
+{
+  TYPE_INFO& temp = findEntryInAnyScopeTYPE(name);
+
+  if (temp.type == INT)
+  {
+    temp.value = new int(-(*(int*)(temp.value)));
+  }
+  else if (temp.type == FLOAT)
+  {
+    temp.value = new float(-(*(float*)(temp.value)));
+  }
+  else if (temp.type == BOOL)
+  {
+    temp.value = new int(-(*(bool*)(temp.value)));
+    temp.type = INT;
+  }
+}
+
+void doNegate(TYPE_INFO& temp)
+{
+  if (temp.type == INT)
+  {
+    temp.value = new int(-(*(int*)(temp.value)));
+  }
+  else if (temp.type == FLOAT)
+  {
+    temp.value = new float(-(*(float*)(temp.value)));
+  }
+  else if (temp.type == BOOL)
+  {
+    temp.value = new int(-(*(bool*)(temp.value)));
+    temp.type = INT;
   }
 }
 
