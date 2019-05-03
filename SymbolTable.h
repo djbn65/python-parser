@@ -52,6 +52,11 @@ public:
     return hashTable.size();
   }
 
+  void erase(string name)
+  {
+    hashTable.erase(name);
+  }
+
 };
 
 #endif  // SYMBOL_TABLE_H
