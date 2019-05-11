@@ -1,0 +1,2 @@
+myList = [123, 3.14, True, "BoJack"]
+myList[1]

@@ -1,0 +1,3 @@
+A = [23, 3.14, True, "BoJack"]
+A[2] = "Mr. Peanutbutter"
+print A

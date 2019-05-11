@@ -46,6 +46,7 @@ class Expression
             }
             return false;
         }
+        virtual string getName() {return "TEMP"; }
 };
 
 class Var : public Expression
@@ -54,6 +55,9 @@ class Var : public Expression
         Var(string var) : name(var) {}
         virtual TYPE_INFO eval() const {
             return findEntryInAnyScopeTYPE(name);
+        }
+        virtual string getName() {
+            return name;
         }
     private:
         string name;
@@ -116,25 +120,25 @@ class Input : public Expression
 class IndVar : public Expression
 {
     public:
-        IndVar(string name, int indVal) : identName(name), ind(indVal) {}
+        IndVar(string name, TYPE_INFO indVal) : identName(name), ind(indVal) {}
         virtual TYPE_INFO eval() const {
             TYPE_INFO temp;
             int size = (*(vector<TYPE_INFO>*)(findEntryInAnyScopeTYPE(identName).value)).size();
-            if (ind < 0)
+            if ((*(int*)(ind.expr->eval().value)) < 0)
             {
-                temp.value = (*(vector<TYPE_INFO>*)(findEntryInAnyScopeTYPE(identName).value))[ind + size].value;
-                temp.type = (*(vector<TYPE_INFO>*)(findEntryInAnyScopeTYPE(identName).value))[ind + size].type;
+                temp.value = (*(vector<TYPE_INFO>*)(findEntryInAnyScopeTYPE(identName).value))[(*(int*)(ind.expr->eval().value)) + size].value;
+                temp.type = (*(vector<TYPE_INFO>*)(findEntryInAnyScopeTYPE(identName).value))[(*(int*)(ind.expr->eval().value)) + size].type;
             }
             else
             {
-                temp.value = (*(vector<TYPE_INFO>*)(findEntryInAnyScopeTYPE(identName).value))[ind].value;
-                temp.type = (*(vector<TYPE_INFO>*)(findEntryInAnyScopeTYPE(identName).value))[ind].type;
+                temp.value = (*(vector<TYPE_INFO>*)(findEntryInAnyScopeTYPE(identName).value))[(*(int*)(ind.expr->eval().value))].value;
+                temp.type = (*(vector<TYPE_INFO>*)(findEntryInAnyScopeTYPE(identName).value))[(*(int*)(ind.expr->eval().value))].type;
             }
             return temp;
         }
     private:
         string identName;
-        int ind;
+        TYPE_INFO ind;
 };
 
 class BinaryExpression : public Expression
@@ -582,7 +586,7 @@ class Assignment : public Statement
 
         virtual Expression* getExpr() {
             if (index.type == INDEXTYPE)
-                return new IndVar(identName, *(int*)(index.value));
+                return new IndVar(identName, index);
             else
                 return new Var(identName);
         }

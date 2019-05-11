@@ -1,0 +1,7 @@
+if (True):
+  x = "string"
+else:
+  x = 3.14
+end
+y = x + 100
+print("This should produce an error!")

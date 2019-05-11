@@ -1,0 +1,2 @@
+# The expected output file expects you to enter CS 3500
+raw_input("Enter a string (e.g., CS 3500): ")

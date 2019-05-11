@@ -1,0 +1,1 @@
+not ((True and 3.14) or 0)

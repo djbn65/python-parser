@@ -1,0 +1,2 @@
+fluffy = "kitty cat"
+fluffy

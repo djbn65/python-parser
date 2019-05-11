@@ -1,0 +1,15 @@
+A = [3.14, -21, "BoJack", True]
+x = 100 - A[0]
+print x
+w = 200 % 2.71
+print w
+A[1] = A[1] + 25
+A
+if (x > w or A[-1]):
+  z = (w ** 2) / 4
+  y = z
+else:
+  y = "Mr. Peanutbutter"
+end
+print y
+quit()

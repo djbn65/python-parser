@@ -1,0 +1,4 @@
+print "This is going to wait for you to enter something" 
+y = raw_input("Enter a string to see if it detects an error: ")
+x = 50 + y
+print "You should not be seeing this if you entered a string!" 

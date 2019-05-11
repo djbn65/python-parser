@@ -1,0 +1,3 @@
+print("Enter a float (e.g., -2.71): ")
+x = raw_input()
+x

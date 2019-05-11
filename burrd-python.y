@@ -150,12 +150,11 @@ N_EXPR            : N_IF_EXPR
                       $$.numParams = $1.numParams;
                       $$.returnType = $1.returnType;
                       $$.isFuncParam = $1.isFuncParam;
-                      string input;
-                      getline(cin, input);
-                      $1.value = new string(input);
+                      TYPE_INFO temp = $1.expr->eval();
+                      $1.value = new string("TEMP");
                       $1.type = STR;
                       valueAssignment($$.value, $1.value, $1.type);
-                      outputValue(&input, STR);
+                      outputValue(temp.value, STR);
                       if (printPrompt)
                         cout << ">>> ";
                     }
@@ -804,7 +803,7 @@ N_ASSIGNMENT_EXPR : T_IDENT N_INDEX
                         if (ScopeStack.top().findEntry($1).type == UNDEF)
                         {
                             TYPE_INFO temp;
-                            temp.type = UNDEF;
+                            temp.type = INT;
                             temp.numParams = NOT_APPLICABLE;
                             temp.returnType = NOT_APPLICABLE;
                             temp.isFuncParam = false;
@@ -3612,7 +3611,7 @@ N_SINGLE_ELEMENT  : T_IDENT T_LBRACKET N_IND_EXPR T_RBRACKET
                         $$.value = (*(vector<TYPE_INFO>*)(findEntryInAnyScopeTYPE($1).value))[(*(int*)($3.value))].value;
                         $$.type = (*(vector<TYPE_INFO>*)(findEntryInAnyScopeTYPE($1).value))[(*(int*)($3.value))].type;
                       }
-                      $$.expr = new IndVar($1, (*(int*)($3.value)));
+                      $$.expr = new IndVar($1, $3);
                     }
                   ;
 N_ENTIRE_VAR      : T_IDENT
@@ -4594,7 +4593,7 @@ void doNE(TYPE_INFO& val, Expression* lhs, Expression* rhs)
       val.value = new bool(*(float*)(lhsVal.value) != *(bool*)(rhsVal.value));
     }
   }
-  else
+  else if (lhsVal.type == BOOL)
   {
     if (rhsVal.type == INT)
     {
@@ -4608,6 +4607,10 @@ void doNE(TYPE_INFO& val, Expression* lhs, Expression* rhs)
     {
       val.value = new bool(*(bool*)(lhsVal.value) != *(bool*)(rhsVal.value));
     }
+  }
+  else
+  {
+    val.value = new bool(strcmp((*(string*)(lhsVal.value)).c_str(), (*(string*)(rhsVal.value)).c_str()));
   }
 }
 
